@@ -1,0 +1,806 @@
+<div class="row">
+  <div class="col-md-7">
+    <div class="card">
+      <div class="card-header"><h6 class="mb-0"><i class="bi bi-check2-square me-2"></i>Completeness Assessment</h6></div>
+      <div class="card-body">
+        <form id="comp-form">
+          <div class="mb-3">
+            <label class="form-label">Instance</label>
+            <select id="comp_instance" class="form-select">
+              <option value="source">Source</option>
+              <option value="dest">Destination</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Dataset</label>
+            <select id="comp_dataset_id" class="form-select"><option value="">Loading…</option></select>
+          </div>
+          <div id="comp-period-section" class="mb-3" style="display:none;">
+            <label class="form-label">Select Periods</label>
+            <div id="comp-period-picker-container"></div>
+            <div class="mt-2">
+              <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-primary" onclick="Comp.selectRecentPeriods()">Last 6</button>
+                <button type="button" class="btn btn-outline-primary" onclick="Comp.selectYearPeriods()">This Year</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="Comp.clearSelectedPeriods()">Clear</button>
+              </div>
+            </div>
+            <div class="mt-2" id="comp-selected-periods" class="small text-muted"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Parent Org Unit(s)</label>
+            <div class="input-group mb-2">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input id="comp_ou_search" class="form-control" placeholder="Filter org units..." oninput="Comp.filterOrgUnits()" />
+              <button class="btn btn-outline-secondary" type="button" onclick="Comp.expandAllOrgUnits()">Expand All</button>
+              <button class="btn btn-outline-secondary" type="button" onclick="Comp.collapseAllOrgUnits()">Collapse All</button>
+              <button class="btn btn-outline-secondary" type="button" onclick="Comp.clearOrgUnits()">Clear</button>
+            </div>
+            <div id="comp_ou_tree" class="border rounded p-2" style="max-height: 220px; overflow:auto;">
+              <div class="text-muted small">Loading…</div>
+            </div>
+            <div class="form-text">Select one or more org units from the hierarchy</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Required Data Elements</label>
+            <div class="input-group mb-2">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input id="comp_de_search" class="form-control" placeholder="Filter data elements..." oninput="Comp.applyDEFilter()" />
+              <button class="btn btn-outline-secondary" type="button" onclick="Comp.selectAllDEOnPage()">All (Page)</button>
+              <button class="btn btn-outline-secondary" type="button" onclick="Comp.clearDEOnPage()">None (Page)</button>
+            </div>
+            <div id="comp_de_list" class="border rounded p-2" style="max-height: 220px; overflow:auto;"></div>
+            <div class="d-flex justify-content-between align-items-center mt-2" id="comp_de_pager" style="display:none;">
+              <button type="button" class="btn btn-sm btn-outline-primary" onclick="Comp.prevDEPage(event)">Prev</button>
+              <div class="small text-muted" id="comp_de_page_info"></div>
+              <button type="button" class="btn btn-sm btn-outline-primary" onclick="Comp.nextDEPage(event)">Next</button>
+            </div>
+            <div class="form-text">Default is all elements in the dataset.</div>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Compliance Threshold (%)</label>
+              <input id="comp_threshold" type="number" class="form-control" value="100" />
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-check">
+                <input id="comp_include_parents" class="form-check-input" type="checkbox" />
+                <label class="form-check-label" for="comp_include_parents">Include Parents</label>
+              </div>
+            </div>
+          </div>
+        </form>
+        <div class="mt-3 d-flex gap-2">
+          <button class="btn btn-outline-primary" onclick="Comp.preview()" type="button"><i class="bi bi-eye me-1"></i>Preview</button>
+          <button class="btn btn-primary" onclick="startCompletenessAssessment()" id="comp-run-btn" type="button" disabled><i class="bi bi-play-circle me-1"></i>Run Assessment</button>
+          <div id="comp-progress" class="mt-3"></div>
+          <div id="comp-actions" class="action-bar mt-3" style="display:none;">
+            <button class="btn btn-outline-primary" onclick="exportCompleteness('json')"><i class="bi bi-filetype-json me-1"></i>Export JSON</button>
+            <button class="btn btn-outline-secondary" onclick="exportCompleteness('csv')"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header"><h6 class="mb-0">Results</h6></div>
+      <div class="card-body">
+        <div id="comp-preview" class="mb-3" style="display:none;"></div>
+        <div id="comp-results" class="small text-muted">No results yet.</div>
+        <div id="comp-bulk-progress" class="mt-2"></div>
+        <div id="comp-bulk-actions" class="mt-3" style="display:none;">
+          <div class="d-flex gap-2">
+            <button class="btn btn-success btn-sm" onclick="Comp.bulkCompleteSelected()"><i class="bi bi-check2-circle me-1"></i>Mark Selected Complete</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="Comp.bulkIncompleteSelected()"><i class="bi bi-x-circle me-1"></i>Mark Selected Incomplete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let compTaskId = null;
+let compSelectedPeriods = [];
+let compDatasetInfo = null;
+let compSelectedElements = new Set();
+let compSelectedOrgUnits = new Set();
+console.log('[Completeness] script loaded');
+
+async function startCompletenessAssessment() {
+  const inst = document.getElementById('comp_instance').value;
+  const ds = document.getElementById('comp_dataset_id').value.trim();
+  const periods = compSelectedPeriods.slice();
+  const parents = Array.from(compSelectedOrgUnits);
+  const req = Array.from(compSelectedElements);
+  const thr = parseInt(document.getElementById('comp_threshold').value || '100', 10);
+  const inc = document.getElementById('comp_include_parents').checked;
+
+  const payload = {
+    comp_instance: inst,
+    comp_dataset_id: ds,
+    comp_periods: periods,
+    comp_parent_ou: parents,
+    comp_required_elements: req,
+    comp_compliance_threshold: thr,
+    comp_include_parents: inc
+  };
+
+  const prog = document.getElementById('comp-progress');
+  const res = document.getElementById('comp-results');
+  document.getElementById('comp-actions').style.display = 'none';
+  prog.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split me-1"></i>Starting…</div>';
+  res.textContent = 'No results yet.';
+
+  try {
+    const r = await fetch('/completeness/assess-bg', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    compTaskId = j.task_id;
+    pollCompleteness(j.task_id);
+  } catch (e) {
+    prog.innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+  }
+}
+
+// Populate datasets and user org units similar to transfer tab
+window._compInitStarted = window._compInitStarted || false;
+window.startCompletenessInit = function(){ if (!window._compInitStarted) { window._compInitStarted = true; compInitSetup(); } };
+
+function compInitSetup(){
+  console.log('[Completeness] init setup');
+  const instSelect = document.getElementById('comp_instance');
+  async function loadDatasets() {
+    const inst = instSelect.value;
+    try {
+      console.log('[Completeness] fetching datasets', inst);
+      const r = await fetch(`/api/datasets?instance=${encodeURIComponent(inst)}`);
+      const j = await r.json();
+      const sel = document.getElementById('comp_dataset_id');
+      sel.innerHTML = '<option value="">Select dataset…</option>';
+      (j.datasets||[]).forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id; opt.textContent = `${d.displayName}`;
+        sel.appendChild(opt);
+      });
+      console.log('[Completeness] datasets loaded', (j.datasets||[]).length);
+    } catch (_) {
+      document.getElementById('comp_dataset_id').innerHTML = '<option value="">Failed to load</option>';
+      console.error('[Completeness] failed to load datasets', _);
+    }
+  }
+  instSelect.addEventListener('change', () => { 
+    loadDatasets(); 
+    ensureLoadOUTree();
+    resetCompWizard(); 
+  });
+  loadDatasets(); 
+  ensureLoadOUTree();
+
+  // Dataset change → load dataset info for period picker and elements
+  document.getElementById('comp_dataset_id').addEventListener('change', async (e) => {
+    const datasetId = e.target.value;
+    compSelectedPeriods = [];
+    renderSelectedPeriods();
+    if (!datasetId) { document.getElementById('comp-period-section').style.display = 'none'; return; }
+    try {
+      const inst = instSelect.value;
+      console.log('[Completeness] fetching dataset-info', { datasetId, inst });
+      const resp = await fetch('/api/dataset-info-by-instance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataset_id: datasetId, instance: inst })
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      compDatasetInfo = await resp.json();
+      console.log('[Completeness] dataset-info received', compDatasetInfo);
+      buildPeriodPicker(compDatasetInfo.period_type || 'Monthly');
+      ensureInitDE(compDatasetInfo.data_elements || []);
+      document.getElementById('comp-period-section').style.display = 'block';
+      updateRunButtonState();
+    } catch (e) {
+      document.getElementById('comp-period-section').style.display = 'none';
+      console.error('[Completeness] dataset-info error', e);
+    }
+  });
+
+  // Ensure OU tree init runs when Comp is defined
+  function ensureLoadOUTree(){
+    let tries = 0; const maxTries = 20; // ~4s
+    const attempt = () => {
+      tries++;
+      if (window.Comp && typeof window.Comp.loadOUTreeRoot === 'function') {
+        try { console.log('[Completeness] loading OU tree'); window.Comp.loadOUTreeRoot(); } catch (e) { console.error('[Completeness] loadOUTreeRoot error', e); }
+        return;
+      }
+      if (tries < maxTries) setTimeout(attempt, 200);
+    };
+    attempt();
+  }
+
+  function ensureInitDE(all){
+    let tries = 0; const maxTries = 20;
+    const attempt = () => {
+      tries++;
+      if (window.Comp && typeof window.Comp.initDataElements === 'function') {
+        try { console.log('[Completeness] init data elements', all?.length||0); window.Comp.initDataElements(all||[]); } catch (e) { console.error('[Completeness] initDataElements error', e); }
+        return;
+      }
+      if (tries < maxTries) setTimeout(attempt, 200);
+    };
+    attempt();
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', compInitSetup);
+} else {
+  compInitSetup();
+}
+
+async function pollCompleteness(taskId) {
+  const prog = document.getElementById('comp-progress');
+  const res = document.getElementById('comp-results');
+  const actions = document.getElementById('comp-actions');
+
+  const tick = async () => {
+    try {
+      const r = await fetch(`/completeness/progress/${taskId}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const p = await r.json();
+      const msgs = (p.messages || []).slice(-8).map(m => `<div>${m}</div>`).join('');
+      prog.innerHTML = `
+        <div>Status: <span class="badge ${p.status==='completed'?'bg-success':p.status==='error'?'bg-danger':'bg-primary'}">${p.status}</span></div>
+        <div class="progress my-2"><div class="progress-bar" style="width:${p.progress||0}%">${p.progress||0}%</div></div>
+        <div class="small text-muted" style="max-height:120px; overflow:auto;">${msgs}</div>
+      `;
+      if (p.status === 'completed') {
+        actions.style.display = 'flex';
+        const rj = p.results || {};
+        try { console.log('[Completeness] final results', rj); } catch(_){}
+        const totalCompliant = (rj.total_compliant ?? rj.total_completed ?? 0);
+        const totalNonCompliant = (rj.total_non_compliant ?? rj.total_unmarked ?? 0);
+        const totalErrors = (rj.total_errors ?? 0);
+        res.innerHTML = `
+          <div class="mb-2"><span class="badge bg-success">Compliant: ${totalCompliant}</span>
+          <span class="badge bg-warning text-dark ms-1">Non-compliant: ${totalNonCompliant}</span>
+          <span class="badge bg-secondary ms-1">Errors: ${totalErrors}</span></div>
+          <div class="mt-2 d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-warning" onclick="Comp.selectNonCompliant()">Select Non-compliant</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="Comp.clearResultSelection()">Clear Selection</button>
+          </div>
+          <div class="mt-2" id="comp-results-table"></div>
+          <!-- Details Modal -->
+          <div class="modal fade" id="compDetailModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="compDetailTitle">Org Unit Details</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                  <div id="compDetailSummary" class="mb-3"></div>
+                  <ul class="nav nav-tabs mb-2" role="tablist">
+                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-present" type="button" role="tab">Present</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-missing" type="button" role="tab">Missing</button></li>
+                  </ul>
+                  <div class="tab-content">
+                    <div class="tab-pane fade show active" id="tab-present" role="tabpanel">
+                      <div class="input-group input-group-sm mb-2">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input id="compDetailPresentSearch" class="form-control" placeholder="Filter present elements..." oninput="Comp.filterDetailList('present')" />
+                      </div>
+                      <div id="compDetailPresentList" style="max-height: 260px; overflow:auto;"></div>
+                    </div>
+                    <div class="tab-pane fade" id="tab-missing" role="tabpanel">
+                      <div class="input-group input-group-sm mb-2">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input id="compDetailMissingSearch" class="form-control" placeholder="Filter missing elements..." oninput="Comp.filterDetailList('missing')" />
+                      </div>
+                      <div id="compDetailMissingList" style="max-height: 260px; overflow:auto;"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        window.compLastResults = rj;
+        if (window.Comp && typeof window.Comp.renderResultsTable === 'function') {
+          window.Comp.renderResultsTable();
+        }
+        document.getElementById('comp-bulk-actions').style.display = 'block';
+        clearInterval(timer);
+      } else if (p.status === 'error') {
+        clearInterval(timer);
+      }
+    } catch (_) { clearInterval(timer); }
+  };
+  const timer = setInterval(tick, 800);
+  tick();
+}
+
+async function exportCompleteness(fmt) {
+  if (!compTaskId) return;
+  const url = `/completeness/export/${compTaskId}?fmt=${fmt}&limit=200`;
+  const r = await fetch(url);
+  const t = await r.text();
+  const blob = new Blob([t], { type: fmt === 'csv' ? 'text/csv' : 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fmt === 'csv' ? 'completeness.csv' : 'completeness.json';
+  a.click();
+}
+</script>
+
+<script>
+// Add missing DE pagination and OU hierarchical tree functions to Comp
+(function(){
+  if (!window.Comp) window.Comp = {};
+
+  // Data elements (paginated, checkbox)
+  window.Comp.initDataElements = function(all) {
+    const sorted = Array.isArray(all) ? all.slice().sort((a,b)=>{
+      const an = (a.displayName||a.id||'').toLowerCase();
+      const bn = (b.displayName||b.id||'').toLowerCase();
+      return an.localeCompare(bn);
+    }) : [];
+    this._allDE = sorted;
+    this._filteredDE = null;
+    this._dePage = 1;
+    this._dePageSize = 30;
+    // Do not auto-select; start empty and let user choose
+    compSelectedElements = new Set();
+    this.renderDEPage();
+    const pager = document.getElementById('comp_de_pager');
+    if (pager) pager.style.display = (this._allDE.length > this._dePageSize) ? 'flex' : 'none';
+    this.updateDEPageInfo();
+  };
+  window.Comp.getDEWorkingSet = function(){ return this._filteredDE || this._allDE || []; };
+  window.Comp.applyDEFilter = function(){
+    const q = (document.getElementById('comp_de_search')?.value || '').toLowerCase();
+    this._filteredDE = (q ? (this._allDE||[]).filter(d => (d.displayName||d.id).toLowerCase().includes(q)) : null);
+    this._dePage = 1; this.renderDEPage(); this.updateDEPageInfo();
+  };
+  window.Comp.renderDEPage = function(){
+    const listDiv = document.getElementById('comp_de_list'); if (!listDiv) return;
+    const items = this.getDEWorkingSet();
+    const start = (this._dePage - 1) * this._dePageSize;
+    const pageItems = items.slice(start, start + this._dePageSize);
+    listDiv.innerHTML = pageItems.map(item => {
+      const checked = compSelectedElements.has(item.id) ? 'checked' : '';
+      return `<div class="form-check">
+        <input class="form-check-input" type="checkbox" id="de_${item.id}" ${checked} onchange="Comp.toggleDE('${item.id}', this.checked)">
+        <label class="form-check-label" for="de_${item.id}">${item.displayName || item.id}</label>
+      </div>`;
+    }).join('') || '<div class="text-muted small">No elements</div>';
+  };
+  window.Comp.updateDEPageInfo = function(){
+    const info = document.getElementById('comp_de_page_info'); if (!info) return;
+    const total = this.getDEWorkingSet().length;
+    const start = total ? ((this._dePage - 1) * this._dePageSize + 1) : 0;
+    const end = Math.min(total, this._dePage * this._dePageSize);
+    info.textContent = total ? `Showing ${start}-${end} of ${total}` : 'No items';
+  };
+  window.Comp.nextDEPage = function(ev){ if (ev && ev.preventDefault) ev.preventDefault(); if (ev && ev.stopPropagation) ev.stopPropagation();
+    const total = this.getDEWorkingSet().length;
+    const maxPage = Math.max(1, Math.ceil(total / this._dePageSize));
+    if (this._dePage < maxPage) { this._dePage++; this.renderDEPage(); this.updateDEPageInfo(); }
+  };
+  window.Comp.prevDEPage = function(ev){ if (ev && ev.preventDefault) ev.preventDefault(); if (ev && ev.stopPropagation) ev.stopPropagation(); if (this._dePage > 1) { this._dePage--; this.renderDEPage(); this.updateDEPageInfo(); } };
+  window.Comp.toggleDE = function(id, checked){ if (checked) compSelectedElements.add(id); else compSelectedElements.delete(id); };
+  window.Comp.selectAllDEOnPage = function(){
+    const items = this.getDEWorkingSet();
+    const start = (this._dePage - 1) * this._dePageSize;
+    const pageItems = items.slice(start, start + this._dePageSize);
+    pageItems.forEach(it => compSelectedElements.add(it.id));
+    this.renderDEPage();
+  };
+  window.Comp.clearDEOnPage = function(){
+    const items = this.getDEWorkingSet();
+    const start = (this._dePage - 1) * this._dePageSize;
+    const pageItems = items.slice(start, start + this._dePageSize);
+    pageItems.forEach(it => compSelectedElements.delete(it.id));
+    this.renderDEPage();
+  };
+
+  // Org unit tree (hierarchical)
+  window.Comp.loadOUTreeRoot = async function(){
+    const inst = document.getElementById('comp_instance').value;
+    const tree = document.getElementById('comp_ou_tree'); if (!tree) return;
+    tree.innerHTML = '<div class="text-muted small">Loading…</div>';
+    try {
+      const r = await fetch(`/api/organisation-units?instance=${encodeURIComponent(inst)}`);
+      if (!r.ok) throw new Error(await r.text());
+      const roots = await r.json();
+      tree.innerHTML = this.renderOUTreeNodes(roots);
+    } catch (e) {
+      tree.innerHTML = `<div class="text-danger small">${e.message}</div>`;
+    }
+  };
+  window.Comp.renderOUTreeNodes = function(nodes){
+    const sorted = (nodes||[]).slice().sort((a,b) => {
+      const an = (a.displayName || a.name || a.id || '').toLowerCase();
+      const bn = (b.displayName || b.name || b.id || '').toLowerCase();
+      return an.localeCompare(bn);
+    });
+    return `<ul class="list-unstyled mb-0">${sorted.map(n => this.renderOUTreeNode(n)).join('')}</ul>`;
+  };
+  window.Comp.renderOUTreeNode = function(n){
+    const checked = compSelectedOrgUnits.has(n.id) ? 'checked' : '';
+    const caret = n.hasChildren ? `<button type="button" class="btn btn-sm btn-secondary p-0 px-1 me-1" onclick="Comp.toggleOUTree('${n.id}', event)" data-ou-caret="${n.id}" title="Expand/Collapse"><i class="bi bi-caret-right-fill" data-ou-icon="${n.id}"></i></button>` : '<span class="me-1"></span>';
+    return `<li class="mb-1" data-ou-node="${n.id}">
+      ${caret}
+      <input class="form-check-input me-1" type="checkbox" id="ou_${n.id}" ${checked} onchange="Comp.toggleOU('${n.id}', this.checked)">
+      <label for="ou_${n.id}" class="form-check-label">${n.displayName || n.id}</label>
+      <div class="ms-4 mt-1" data-ou-children="${n.id}" style="display:none;"></div>
+    </li>`;
+  };
+  window.Comp.toggleOUTree = async function(id, ev){
+    try { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); } catch(_){}
+    const caretBtn = document.querySelector(`[data-ou-caret='${id}']`);
+    const container = document.querySelector(`[data-ou-children='${id}']`);
+    if (!container) return;
+    if (container.getAttribute('data-loaded') === '1') {
+      const visible = container.style.display !== 'none';
+      container.style.display = visible ? 'none' : 'block';
+      const icon = document.querySelector(`[data-ou-icon='${id}']`);
+      if (icon) icon.className = visible ? 'bi bi-caret-right-fill' : 'bi bi-caret-down-fill';
+      return;
+    }
+    try {
+      const inst = document.getElementById('comp_instance').value;
+      const r = await fetch(`/api/organisation-units?parent=${encodeURIComponent(id)}&instance=${encodeURIComponent(inst)}`);
+      if (!r.ok) throw new Error(await r.text());
+      const children = await r.json();
+      container.innerHTML = this.renderOUTreeNodes(children);
+      container.setAttribute('data-loaded', '1');
+      container.style.display = 'block';
+      const icon = document.querySelector(`[data-ou-icon='${id}']`);
+      if (icon) icon.className = 'bi bi-caret-down-fill';
+    } catch (e) {
+      container.innerHTML = `<div class=\"text-danger small\">${e.message}</div>`;
+    }
+  };
+  window.Comp.toggleOU = function(id, checked){ if (checked) compSelectedOrgUnits.add(id); else compSelectedOrgUnits.delete(id); updateRunButtonState(); };
+  window.Comp.expandAllOrgUnits = function(){ document.querySelectorAll('[data-ou-caret]').forEach(btn => btn.click()); };
+  window.Comp.collapseAllOrgUnits = function(){ document.querySelectorAll('[data-ou-children]').forEach(div => { div.style.display = 'none'; }); document.querySelectorAll('[data-ou-caret]').forEach(btn => btn.textContent = '▶'); };
+  window.Comp.filterOrgUnits = function(){
+    const q = (document.getElementById('comp_ou_search')?.value || '').toLowerCase();
+    document.querySelectorAll('[data-ou-node]').forEach(li => {
+      const label = li.querySelector('label')?.textContent?.toLowerCase() || '';
+      li.style.display = q && !label.includes(q) ? 'none' : '';
+    });
+  };
+})();
+</script>
+
+<script>
+// Completeness UI helpers
+function buildPeriodPicker(periodType) {
+  const container = document.getElementById('comp-period-picker-container');
+  const opts = generatePeriodOptions(periodType);
+  container.innerHTML = `
+    <div class="mb-2">
+      <select class="form-select" id="comp-period-select">
+        <option value="">Select a ${periodType.toLowerCase()} period...</option>
+        ${opts.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+      </select>
+    </div>
+  `;
+  const sel = document.getElementById('comp-period-select');
+  sel.addEventListener('change', () => {
+    const val = sel.value;
+    if (val && !compSelectedPeriods.includes(val)) {
+      compSelectedPeriods.push(val);
+      renderSelectedPeriods();
+      updateRunButtonState();
+    }
+    sel.value = '';
+  });
+}
+
+function generatePeriodOptions(periodType) {
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const list = [];
+  switch(periodType) {
+    case 'Daily':
+      for (let i=0;i<90;i++) { const d=new Date(currentDate); d.setDate(d.getDate()-i); const id=d.toISOString().split('T')[0].replace(/-/g,''); list.push({id, name:d.toLocaleDateString()}); }
+      break;
+    case 'Weekly':
+      for (let i=0;i<52;i++){ const y=currentYear-Math.floor(i/52); const w=52-(i%52); list.push({id:`${y}W${String(w).padStart(2,'0')}`, name:`Week ${w}, ${y}`}); }
+      break;
+    case 'Monthly':
+      for (let i=0;i<24;i++){ const d=new Date(currentYear, currentDate.getMonth()-i, 1); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); list.push({id:`${y}${m}`, name:d.toLocaleDateString('en-US',{year:'numeric',month:'long'})}); }
+      break;
+    case 'Yearly':
+      for (let i=0;i<10;i++){ const y=currentYear-i; list.push({id:String(y), name:String(y)}); }
+      break;
+    default:
+      for (let i=0;i<12;i++){ const d=new Date(currentYear, currentDate.getMonth()-i, 1); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); list.push({id:`${y}${m}`, name:d.toLocaleDateString('en-US',{year:'numeric',month:'long'})}); }
+  }
+  return list;
+}
+
+function renderSelectedPeriods() {
+  const div = document.getElementById('comp-selected-periods');
+  if (!div) return;
+  if (compSelectedPeriods.length === 0) { div.innerHTML = '<small class="text-muted">No periods selected</small>'; return; }
+  div.innerHTML = compSelectedPeriods.map(p => `<span class="badge bg-primary me-1 mb-1">${p} <button type=\"button\" class=\"btn-close btn-close-white btn-close-sm ms-1\" onclick=\"Comp.removePeriod('${p}')\"></button></span>`).join('');
+}
+
+function buildDataElementSelect(elements) {
+  const sel = document.getElementById('comp_required_elements_select');
+  const sorted = (elements||[]).slice().sort((a,b)=>{
+    const an = (a.displayName||a.id||'').toLowerCase();
+    const bn = (b.displayName||b.id||'').toLowerCase();
+    return an.localeCompare(bn);
+  });
+  sel.innerHTML = '';
+  sorted.forEach(el => {
+    const opt = document.createElement('option'); opt.value = el.id; opt.textContent = el.displayName || el.id; sel.appendChild(opt);
+  });
+  compSelectedElements = new Set(sorted.map(el => el.id));
+  Array.from(sel.options).forEach(o => o.selected = true);
+  sel.addEventListener('change', () => {
+    compSelectedElements = new Set(Array.from(sel.selectedOptions).map(o => o.value));
+    updateRunButtonState();
+  });
+}
+
+function updateRunButtonState() {
+  const btn = document.getElementById('comp-run-btn');
+  const hasDataset = !!document.getElementById('comp_dataset_id').value;
+  const hasPeriods = compSelectedPeriods.length > 0;
+  const hasOUs = compSelectedOrgUnits.size > 0;
+  btn.disabled = !(hasDataset && hasPeriods && hasOUs);
+}
+
+function resetCompWizard() {
+  compSelectedPeriods = [];
+  compSelectedElements = new Set();
+  compSelectedOrgUnits = new Set();
+  compDatasetInfo = null;
+  renderSelectedPeriods();
+  updateRunButtonState();
+  const p = document.getElementById('comp-preview'); if (p) p.style.display = 'none';
+}
+
+window.compLastResults = null;
+let compSelectedResultOUs = new Set();
+
+window.Comp = window.Comp || {};
+Object.assign(window.Comp, {
+  selectRecentPeriods() {
+    compSelectedPeriods = generatePeriodOptions(compDatasetInfo?.period_type || 'Monthly').slice(0,6).map(p => p.id);
+    renderSelectedPeriods(); updateRunButtonState();
+  },
+  selectYearPeriods() {
+    const y = new Date().getFullYear();
+    compSelectedPeriods = generatePeriodOptions(compDatasetInfo?.period_type || 'Monthly').filter(p => p.id.includes(String(y))).map(p => p.id);
+    renderSelectedPeriods(); updateRunButtonState();
+  },
+  clearSelectedPeriods() { compSelectedPeriods = []; renderSelectedPeriods(); updateRunButtonState(); },
+  removePeriod(id) { compSelectedPeriods = compSelectedPeriods.filter(p => p !== id); renderSelectedPeriods(); updateRunButtonState(); },
+  preview() {
+    const preview = document.getElementById('comp-preview');
+    const dsName = compDatasetInfo?.dataset_name || 'Dataset';
+    const els = Array.from(compSelectedElements).length;
+    const ouCount = compSelectedOrgUnits.size;
+    const pCount = compSelectedPeriods.length;
+    const thr = parseInt(document.getElementById('comp_threshold').value || '100', 10);
+    preview.style.display = 'block';
+    preview.innerHTML = `
+      <div class="card">
+        <div class="card-header"><strong>Assessment Preview</strong></div>
+        <div class="card-body small">
+          <div class="mb-2"><span class="badge bg-secondary">Dataset:</span> ${dsName}</div>
+          <div class="mb-2"><span class="badge bg-info">Periods:</span> ${pCount}</div>
+          <div class="mb-2"><span class="badge bg-primary">Required Elements:</span> ${els} ${els===0?'(all)': ''}</div>
+          <div class="mb-2"><span class="badge bg-dark">Parents:</span> ${ouCount}</div>
+          <div class="mb-2"><span class="badge bg-warning text-dark">Threshold:</span> ${thr}%</div>
+        </div>
+      </div>`;
+  },
+  renderResultsTable() {
+    const container = document.getElementById('comp-results-table');
+    const details = (window.compLastResults && window.compLastResults.compliance_details) || {};
+    const rows = Object.entries(details).map(([ou, info]) => ({
+      ou,
+      name: info?.name || ou,
+      pct: info?.compliance_percentage ?? 0,
+      present: info?.elements_present ?? 0,
+      required: info?.elements_required ?? 0,
+    })).sort((a,b)=> a.pct - b.pct);
+    const html = `
+      <div class="table-responsive" style="max-height: 280px; overflow:auto;">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th style="width:32px;"><input type="checkbox" onclick="Comp.toggleAllResults(this.checked)"></th>
+              <th>Org Unit</th>
+              <th class="text-end">Compliance %</th>
+              <th class="text-end">Present / Required</th>
+              <th style=\"width:80px;\"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td><input type="checkbox" ${compSelectedResultOUs.has(r.ou)?'checked':''} onclick="Comp.toggleResultOU('${r.ou}', this.checked)"></td>
+                <td>${r.name} <span class="text-muted">(${r.ou})</span></td>
+                <td class="text-end">${r.pct}</td>
+                <td class="text-end">${r.present} / ${r.required}</td>
+                <td class="text-end"><button type=\"button\" class=\"btn btn-sm btn-secondary\" onclick=\"Comp.openDetail('${r.ou}')\">View</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    container.innerHTML = html;
+  },
+  openDetail(ouId) {
+    const details = (window.compLastResults && window.compLastResults.compliance_details) || {};
+    const info = details[ouId];
+    if (!info) return;
+    const title = document.getElementById('compDetailTitle');
+    const sum = document.getElementById('compDetailSummary');
+    const requiredCount = info.elements_required ?? 0;
+    const presentCount = info.elements_present ?? 0;
+    const pct = info.compliance_percentage ?? 0;
+
+    const nameMap = new Map();
+    (compDatasetInfo?.data_elements || []).forEach(de => nameMap.set(de.id, de.displayName || de.id));
+    const missingIds = Array.isArray(info.missing_elements) ? info.missing_elements.slice() : [];
+    const requiredIds = (compSelectedElements && compSelectedElements.size > 0)
+      ? Array.from(compSelectedElements)
+      : (compDatasetInfo?.data_elements || []).map(de => de.id);
+    // Derive present as required minus missing
+    const missingSet = new Set(missingIds);
+    const presentIds = requiredIds.filter(id => !missingSet.has(id));
+    const missing = missingIds.map(id => ({ id, name: nameMap.get(id) || id }));
+    const present = presentIds.map(id => ({ id, name: nameMap.get(id) || id }));
+    missing.sort((a,b)=> (a.name||'').toLowerCase().localeCompare((b.name||'').toLowerCase()));
+    present.sort((a,b)=> (a.name||'').toLowerCase().localeCompare((b.name||'').toLowerCase()));
+
+    title.textContent = `${info.name || ouId} (${ouId})`;
+    sum.innerHTML = `
+      <div class="d-flex flex-wrap gap-2">
+        <span class="badge bg-primary">Compliance: ${pct}%</span>
+        <span class="badge bg-success">Present: ${presentCount}</span>
+        <span class="badge bg-secondary">Required: ${requiredCount}</span>
+      </div>`;
+
+    const presentList = document.getElementById('compDetailPresentList');
+    const missingList = document.getElementById('compDetailMissingList');
+
+    presentList.innerHTML = present.length ? present.map(e => `<div>${e.name} <span class=\"text-muted\">(${e.id})</span></div>`).join('') : '<div class="text-muted small">None</div>';
+    missingList.innerHTML = missing.length ? missing.map(e => `<div>${e.name} <span class=\"text-muted\">(${e.id})</span></div>`).join('') : '<div class="text-muted small">None</div>';
+
+    this._detailPresent = present;
+    this._detailMissing = missing;
+    this._detailRender();
+
+    try {
+      const modalEl = document.getElementById('compDetailModal');
+      const modal = new bootstrap.Modal(modalEl);
+      modal.show();
+    } catch(_) {}
+  },
+  filterDetailList(which) {
+    const q = ((which==='present'? document.getElementById('compDetailPresentSearch') : document.getElementById('compDetailMissingSearch'))?.value || '').toLowerCase();
+    this._detailQuery = this._detailQuery || { present: '', missing: '' };
+    this._detailQuery[which] = q;
+    this._detailRender();
+  },
+  _detailRender() {
+    const presentList = document.getElementById('compDetailPresentList');
+    const missingList = document.getElementById('compDetailMissingList');
+    const qp = (this._detailQuery?.present || '');
+    const qm = (this._detailQuery?.missing || '');
+    const filter = (arr,q) => arr.filter(e => (e.name||'').toLowerCase().includes(q) || (e.id||'').toLowerCase().includes(q));
+    const pr = filter(this._detailPresent||[], qp);
+    const mr = filter(this._detailMissing||[], qm);
+    presentList.innerHTML = pr.length ? pr.map(e => `<div>${e.name} <span class=\"text-muted\">(${e.id})</span></div>`).join('') : '<div class="text-muted small">No detailed list available</div>';
+    missingList.innerHTML = mr.length ? mr.map(e => `<div>${e.name} <span class=\"text-muted\">(${e.id})</span></div>`).join('') : '<div class="text-muted small">None</div>';
+  },
+  toggleResultOU(ou, checked) {
+    if (checked) compSelectedResultOUs.add(ou); else compSelectedResultOUs.delete(ou);
+  },
+  toggleAllResults(checked) {
+    const details = (window.compLastResults && window.compLastResults.compliance_details) || {};
+    compSelectedResultOUs = new Set(checked ? Object.keys(details) : []);
+    this.renderResultsTable();
+  },
+  selectNonCompliant() {
+    const details = (window.compLastResults && window.compLastResults.compliance_details) || {};
+    compSelectedResultOUs = new Set(Object.entries(details).filter(([,i]) => (i?.compliance_percentage ?? 0) < 100).map(([ou]) => ou));
+    this.renderResultsTable();
+  },
+  clearResultSelection() { compSelectedResultOUs = new Set(); this.renderResultsTable(); },
+  bulkCompleteSelected() { this._bulk('complete'); },
+  bulkIncompleteSelected() { this._bulk('incomplete'); },
+  _bulk(action) {
+    const chosen = Array.from(compSelectedResultOUs.size ? compSelectedResultOUs : compSelectedOrgUnits);
+    if (chosen.length === 0 || compSelectedPeriods.length === 0) { alert('Select org units and periods'); return; }
+    const payload = {
+      action,
+      org_units: chosen,
+      dataset_id: document.getElementById('comp_dataset_id').value,
+      periods: compSelectedPeriods,
+      instance: document.getElementById('comp_instance').value,
+    };
+    const prog = document.getElementById('comp-bulk-progress');
+    prog.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split me-1"></i>Starting bulk action…</div>';
+    fetch('/completeness/bulk-action-bg', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(async r => { if (!r.ok) throw new Error(await r.text()); const j = await r.json(); this.pollBulkProgress(j.task_id); })
+      .catch(e => prog.innerHTML = `<div class="alert alert-danger">${e.message}</div>`);
+  },
+  pollBulkProgress(taskId) {
+    const prog = document.getElementById('comp-bulk-progress');
+    let timer = null;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/completeness/progress/${taskId}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const p = await r.json();
+        const msgs = (p.messages || []).slice(-6).map(m => `<div>${m}</div>`).join('');
+        prog.innerHTML = `
+          <div>Status: <span class="badge ${p.status==='completed'?'bg-success':p.status==='error'?'bg-danger':'bg-primary'}">${p.status}</span></div>
+          <div class="progress my-2"><div class="progress-bar" style="width:${p.progress||0}%">${p.progress||0}%</div></div>
+          <div class="small text-muted" style="max-height:120px; overflow:auto;">${msgs}</div>
+        `;
+        if (p.status === 'completed' || p.status === 'error') { clearInterval(timer); }
+      } catch (_) { clearInterval(timer); }
+    };
+    timer = setInterval(tick, 800);
+    tick();
+  },
+  // Org unit helpers
+  filterOrgUnits() {
+    const q = (document.getElementById('comp_ou_search').value || '').toLowerCase();
+    const sel = document.getElementById('comp_parent_ou');
+    Array.from(sel.options).forEach(opt => {
+      if (!opt.value) return;
+      const txt = (opt.textContent || '').toLowerCase();
+      opt.hidden = q && !txt.includes(q);
+    });
+  },
+  selectAllOrgUnits() {
+    const sel = document.getElementById('comp_parent_ou');
+    Array.from(sel.options).forEach(o => { if (!o.hidden && o.value) o.selected = true; });
+    compSelectedOrgUnits = new Set(Array.from(sel.selectedOptions).map(o => o.value));
+    updateRunButtonState();
+  },
+  clearOrgUnits() {
+    const sel = document.getElementById('comp_parent_ou');
+    Array.from(sel.options).forEach(o => { o.selected = false; });
+    compSelectedOrgUnits = new Set();
+    updateRunButtonState();
+  },
+  // Data element helpers
+  filterDataElements() {
+    const q = (document.getElementById('comp_de_search').value || '').toLowerCase();
+    const sel = document.getElementById('comp_required_elements_select');
+    Array.from(sel.options).forEach(opt => {
+      if (!opt.value) return;
+      const txt = (opt.textContent || '').toLowerCase();
+      opt.hidden = q && !txt.includes(q);
+    });
+  },
+  selectAllDataElements() {
+    const sel = document.getElementById('comp_required_elements_select');
+    Array.from(sel.options).forEach(o => { if (!o.hidden && o.value) o.selected = true; });
+    compSelectedElements = new Set(Array.from(sel.selectedOptions).map(o => o.value));
+  },
+  clearDataElements() {
+    const sel = document.getElementById('comp_required_elements_select');
+    Array.from(sel.options).forEach(o => { o.selected = false; });
+    compSelectedElements = new Set();
+  }
+});
+</script>
+

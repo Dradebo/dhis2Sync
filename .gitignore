@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Databases
+app.db
+*.sqlite
+*.sqlite3
+*.db
+
+# Build/dist
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Tests/coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+logs/
+
+# Editors/OS
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Note: keep Alembic migrations under version control
+# (do not ignore migrations/versions)

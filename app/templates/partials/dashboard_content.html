@@ -1,0 +1,206 @@
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock-history me-2"></i>Recent Jobs
+                </h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshJobHistory()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body" id="job-history-container">
+                {% if job_history %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Dataset</th>
+                                    <th>Status</th>
+                                    <th>Started</th>
+                                    <th>Result</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for job in job_history %}
+                                <tr>
+                                    <td>
+                                        <span class="badge bg-info">
+                                            {% if job.type == 'sync' %}
+                                                <i class="bi bi-arrow-left-right me-1"></i>Sync
+                                            {% else %}
+                                                <i class="bi bi-check-circle me-1"></i>Completeness
+                                            {% endif %}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ job.dataset_id }}</small>
+                                    </td>
+                                    <td>
+                                        {% if job.status == 'completed' %}
+                                            <span class="badge bg-success">Completed</span>
+                                        {% elif job.status == 'error' %}
+                                            <span class="badge bg-danger">Error</span>
+                                        {% else %}
+                                            <span class="badge bg-warning">{{ job.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <small>{{ job.started_at[:16] }}</small>
+                                    </td>
+                                    <td>
+                                        {% if job.total_transferred %}
+                                            <small class="text-success">{{ job.total_transferred }} transferred</small>
+                                        {% elif job.error %}
+                                            <small class="text-danger">{{ job.error[:30] }}...</small>
+                                        {% else %}
+                                            <small class="text-muted">-</small>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5 text-muted" id="no-jobs-message">
+                        <i class="bi bi-inbox fs-1 mb-3"></i>
+                        <h6>No jobs yet</h6>
+                        <p>Configure your settings and run your first sync to see job history here.</p>
+                        <button class="btn btn-primary" onclick="switchToTab('settings-tab')">
+                            <i class="bi bi-gear me-1"></i>Configure Settings
+                        </button>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0">Quick Actions</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary" onclick="switchToTab('transfer-tab')">
+                        <i class="bi bi-arrow-left-right me-1"></i>New Transfer
+                    </button>
+                    <button class="btn btn-outline-success" onclick="switchToTab('completeness-tab')">
+                        <i class="bi bi-check-circle me-1"></i>Check Completeness
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="switchToTab('settings-tab')">
+                        <i class="bi bi-gear me-1"></i>Manage Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">System Status</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Source Connection</span>
+                    <span class="badge bg-secondary">Not Configured</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Destination Connection</span>
+                    <span class="badge bg-secondary">Not Configured</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>Sync Profiles</span>
+                    <span class="badge bg-secondary">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchToTab(tabId) {
+    const tabTrigger = new bootstrap.Tab(document.getElementById(tabId));
+    tabTrigger.show();
+}
+
+async function refreshJobHistory() {
+    try {
+        const response = await fetch('/api/jobs');
+        const data = await response.json();
+        
+        const container = document.getElementById('job-history-container');
+        if (!data.jobs || data.jobs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-5 text-muted" id="no-jobs-message">
+                    <i class="bi bi-inbox fs-1 mb-3"></i>
+                    <h6>No jobs yet</h6>
+                    <p>Configure your settings and run your first sync to see job history here.</p>
+                    <button class="btn btn-primary" onclick="switchToTab('settings-tab')">
+                        <i class="bi bi-gear me-1"></i>Configure Settings
+                    </button>
+                </div>
+            `;
+        } else {
+            let tableHtml = `
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Dataset</th>
+                                <th>Status</th>
+                                <th>Started</th>
+                                <th>Result</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            data.jobs.reverse().forEach(job => {
+                const statusBadge = job.status === 'completed' ? 
+                    '<span class="badge bg-success">Completed</span>' :
+                    job.status === 'error' ? 
+                    '<span class="badge bg-danger">Error</span>' :
+                    `<span class="badge bg-warning">${job.status}</span>`;
+                
+                const resultText = job.total_transferred ? 
+                    `<small class="text-success">${job.total_transferred} transferred</small>` :
+                    job.error ? 
+                    `<small class="text-danger">${job.error.substring(0, 30)}...</small>` :
+                    '<small class="text-muted">-</small>';
+                
+                tableHtml += `
+                    <tr>
+                        <td>
+                            <span class="badge bg-info">
+                                ${job.type === 'sync' ? 
+                                    '<i class="bi bi-arrow-left-right me-1"></i>Sync' : 
+                                    '<i class="bi bi-check-circle me-1"></i>Completeness'}
+                            </span>
+                        </td>
+                        <td><small class="text-muted">${job.dataset_id || '-'}</small></td>
+                        <td>${statusBadge}</td>
+                        <td><small>${job.started_at.substring(0, 16)}</small></td>
+                        <td>${resultText}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHtml += '</tbody></table></div>';
+            container.innerHTML = tableHtml;
+        }
+    } catch (error) {
+        console.error('Error refreshing job history:', error);
+    }
+}
+
+// Auto-refresh job history every 30 seconds when on dashboard
+setInterval(() => {
+    const dashboardTab = document.getElementById('dashboard');
+    if (dashboardTab && dashboardTab.classList.contains('active')) {
+        refreshJobHistory();
+    }
+}, 30000);
+</script>

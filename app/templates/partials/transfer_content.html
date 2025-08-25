@@ -1,0 +1,1518 @@
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex align-items-center">
+                    <h5 class="mb-0 me-3">
+                        <i class="bi bi-arrow-left-right me-2"></i>Transfer
+                    </h5>
+                    <ul class="nav nav-pills" id="transferSubtabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="subtab-data" data-bs-toggle="tab" data-bs-target="#subtab-pane-data" type="button" role="tab" aria-controls="subtab-pane-data" aria-selected="true">Data</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="subtab-metadata" data-bs-toggle="tab" data-bs-target="#subtab-pane-metadata" type="button" role="tab" aria-controls="subtab-pane-metadata" aria-selected="false">Metadata</button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="tab-content" id="transferSubtabContent">
+                    <div class="tab-pane fade show active" id="subtab-pane-data" role="tabpanel" aria-labelledby="subtab-data">
+                <div class="alert alert-info mb-3" id="connection-check" style="display: none;">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <span id="connection-message">Please configure connections in Settings tab first.</span>
+                </div>
+                
+                <form id="sync-form">
+                    <!-- Step 1: Dataset Selection -->
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label for="source_dataset" class="form-label">Select Dataset</label>
+                            <select class="form-select" id="source_dataset" name="source_dataset" required>
+                                <option value="">Loading datasets...</option>
+                            </select>
+                            <div class="form-text">Choose dataset from source instance</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">&nbsp;</label>
+                            <button type="button" class="btn btn-outline-primary d-block w-100" onclick="Transfer.loadDatasetInfo()" id="load-dataset-btn" disabled>
+                                <i class="bi bi-info-circle me-1"></i>Load Dataset Info
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Step 2: Period Selection (hidden initially) -->
+                    <div id="period-selection-section" style="display: none;">
+                        <div class="card bg-light mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-calendar me-2"></i>Period Selection
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="dataset-info-display" class="mb-3">
+                                    <!-- Dataset info will be displayed here -->
+                                </div>
+                                
+                                <!-- Period Picker -->
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <label for="period-picker" class="form-label">Select Periods</label>
+                                        <div id="period-picker-container">
+                                            <!-- Dynamic period picker based on periodType -->
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6" id="attribute-selection" style="display: none;">
+                                        <label for="attribute-combo" class="form-label">Attribute Option (Optional)</label>
+                                        <select class="form-select" id="attribute-combo">
+                                            <option value="">Default (no attribute)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Selected Periods</label>
+                                    <div id="selected-periods-display" class="border rounded p-2 bg-white min-height-50">
+                                        <small class="text-muted">No periods selected</small>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" class="btn btn-success" onclick="previewSelectedData()" id="preview-data-btn" disabled>
+                                    <i class="bi bi-search me-1"></i>Preview Data for Selected Periods
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Step 3: Data Preview (hidden initially) -->
+                    <div id="data-preview-section" style="display: none;">
+                        <div class="card bg-light mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-eye me-2"></i>Data Preview
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="data-preview-content">
+                                    <!-- Will be populated by JavaScript -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    
+                    <!-- Step 4: Mapping Section (shown only if needed) -->
+                    <div id="mapping-section" style="display: none;">
+                        <div class="alert alert-warning">
+                            <h6 class="alert-heading">
+                                <i class="bi bi-exclamation-triangle me-2"></i>Mapping Required
+                            </h6>
+                            <div id="mapping-details"></div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="dest_dataset" class="form-label">Destination Dataset</label>
+                                <select class="form-select" id="dest_dataset" name="dest_dataset">
+                                    <option value="">Loading...</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="dest_parent_ou" class="form-label">Destination Parent Org Unit</label>
+                                <input type="text" class="form-control" id="dest_parent_ou" name="dest_parent_ou">
+                                <div class="form-text">Only if org unit IDs differ</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Advanced Options (collapsible) -->
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse" data-bs-target="#advanced-options">
+                            <i class="bi bi-gear me-1"></i>Advanced Options
+                        </button>
+                    </div>
+                    
+                    <div class="collapse" id="advanced-options">
+                        <div class="card card-body mb-3">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="include_parents" name="include_parents">
+                                        <label class="form-check-label" for="include_parents">
+                                            Include Parent Org Units
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="threshold" class="form-label">Data Threshold</label>
+                                    <input type="number" class="form-control" id="threshold" name="threshold" value="0" min="0">
+                                    <div class="form-text">Minimum data values required per org unit</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Sync Button (shown only when ready) -->
+                    <div id="sync-button-section" style="display: none;">
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-success btn-lg" onclick="startSync()" id="start-sync-btn">
+                                <i class="bi bi-play me-1"></i><span id="sync-btn-text">Start Synchronization</span>
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" onclick="resetFlow()">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Reset
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                
+                <div id="sync-status" class="mt-3"></div>
+                <div id="sync-progress" class="mt-3" style="display: none;"></div>
+                    </div>
+                    <div class="tab-pane fade" id="subtab-pane-metadata" role="tabpanel" aria-labelledby="subtab-metadata">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle me-2"></i>
+                            Assess metadata differences between source and destination before data transfers. No changes will be applied in this step.
+                        </div>
+                        <form id="metadata-scope-form" class="mb-3">
+                            <div class="row g-2">
+                                <div class="col-md-12">
+                                    <label class="form-label">Scope</label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="organisationUnits" id="md_ou" checked>
+                                            <label class="form-check-label" for="md_ou">Organisation Units</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="categories" id="md_cat" checked>
+                                            <label class="form-check-label" for="md_cat">Categories/Combos</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="categoryOptions" id="md_copt" checked>
+                                            <label class="form-check-label" for="md_copt">Category Options/COCs</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="optionSets" id="md_opt" checked>
+                                            <label class="form-check-label" for="md_opt">Option Sets</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="dataElements" id="md_de" checked>
+                                            <label class="form-check-label" for="md_de">Data Elements</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="dataSets" id="md_ds" checked>
+                                            <label class="form-check-label" for="md_ds">Datasets</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-3 d-flex gap-2">
+                                <button type="button" id="btn-run-assessment" class="btn btn-primary" onclick="startMetadataAssessment()">
+                                    <i class="bi bi-search me-1"></i>Run Assessment
+                                </button>
+                            </div>
+                        </form>
+                        <div id="metadata-progress" class="mb-3"></div>
+                        <div id="metadata-results"></div>
+                        <div id="metadata-actions" class="mt-3 pt-3 border-top" style="display: none;">
+                            <div class="action-bar">
+                                <button type="button" class="btn btn-outline-secondary" onclick="openSuggestionReview()">
+                                    <i class="bi bi-list-check me-1"></i>Review Suggestions
+                                </button>
+                                <button type="button" class="btn btn-outline-dark" onclick="previewMetadataPayload()">
+                                    <i class="bi bi-eye me-1"></i>Preview Payload
+                                </button>
+                                <button type="button" class="btn btn-outline-primary" onclick="runMetadataDryRun()">
+                                    <i class="bi bi-play-circle me-1"></i>Dry-Run Import
+                                </button>
+                                <button type="button" class="btn btn-success" onclick="applyMetadataImport()">
+                                    <i class="bi bi-check2-circle me-1"></i>Apply (After Dry-Run)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">Sync Information</h6>
+            </div>
+            <div class="card-body">
+                <div class="small text-muted mb-3">
+                    <p><strong>How it works:</strong></p>
+                    <ol>
+                        <li>Fetches data from source org unit and children</li>
+                        <li>Maps child org units between source and destination</li>
+                        <li>Transfers data values with proper org unit mapping</li>
+                        <li>Handles mismatches with user confirmation</li>
+                    </ol>
+                </div>
+                
+                <div class="alert alert-info small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    <strong>Note:</strong> This uses your proven sync logic that handles same-dataset, different-org-unit transfers.
+                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0">Recent Transfers</h6>
+            </div>
+            <div class="card-body">
+                <div class="text-center py-3 text-muted">
+                    <i class="bi bi-clock-history fs-3 mb-2"></i>
+                    <p class="small mb-0">No recent transfers</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let sourceDatasets = [];
+let datasetInfo = null;
+let selectedPeriods = [];
+let needsMapping = false;
+
+// Load datasets when tab is shown
+document.addEventListener('DOMContentLoaded', function() {
+    loadSourceDatasets();
+});
+
+// Also load when transfer tab is clicked
+document.getElementById('transfer-tab').addEventListener('click', function() {
+    setTimeout(loadSourceDatasets, 100);
+});
+
+async function loadSourceDatasets() {
+    try {
+        const response = await fetch('/api/datasets?instance=source');
+        if (response.ok) {
+            const data = await response.json();
+            sourceDatasets = data.datasets;
+            populateSourceDatasets();
+        } else {
+            showConnectionWarning('source');
+        }
+    } catch (error) {
+        console.error('Error loading datasets:', error);
+        showConnectionWarning('both');
+    }
+}
+
+function showConnectionWarning(instance) {
+    const checkDiv = document.getElementById('connection-check');
+    const messageSpan = document.getElementById('connection-message');
+    
+    if (instance === 'both') {
+        messageSpan.textContent = 'Please configure connections in Settings tab first.';
+    } else {
+        messageSpan.textContent = `No connection to ${instance} instance. Please configure in Settings tab.`;
+    }
+    
+    checkDiv.style.display = 'block';
+}
+
+function populateSourceDatasets() {
+    const sourceSelect = document.getElementById('source_dataset');
+    
+    sourceSelect.innerHTML = '<option value="">Select dataset...</option>';
+    
+    sourceDatasets.forEach(dataset => {
+        const option = document.createElement('option');
+        option.value = dataset.id;
+        option.textContent = `${dataset.displayName} (${dataset.elementCount} elements)`;
+        sourceSelect.appendChild(option);
+    });
+    
+    // Enable load button when dataset is selected
+    sourceSelect.addEventListener('change', function() {
+        const loadBtn = document.getElementById('load-dataset-btn');
+        loadBtn.disabled = !this.value;
+        if (!this.value) {
+            resetToStep1();
+        }
+    });
+}
+
+window.Transfer = {
+    loadDatasetInfo: async function() {
+    const sourceSelect = document.getElementById('source_dataset');
+    const datasetId = sourceSelect.value;
+    
+    if (!datasetId) return;
+    
+    const loadBtn = document.getElementById('load-dataset-btn');
+    loadBtn.className = 'btn btn-primary d-block w-100';
+    loadBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Loading...';
+    loadBtn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/dataset-info', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dataset_id: datasetId})
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            datasetInfo = data;
+            showDatasetInfo(data);
+            showPeriodPicker(data.period_type);
+            
+            // Show attribute options if dataset has them
+            if (data.has_attributes) {
+                showAttributeOptions(data.attribute_options);
+            }
+            
+            // Determine if mapping will be needed
+            needsMapping = !data.same_dataset_exists;
+            
+        } else {
+            const errorText = await response.text();
+            showError(`Failed to load dataset info: ${errorText}`);
+        }
+    } catch (error) {
+        showError(`Error loading dataset info: ${error.message}`);
+    } finally {
+        loadBtn.className = 'btn btn-outline-primary d-block w-100';
+        loadBtn.innerHTML = '<i class="bi bi-info-circle me-1"></i>Load Dataset Info';
+        loadBtn.disabled = false;
+    }
+    },
+    
+    generatePeriodOptions: function(periodType) {
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+        const options = [];
+        
+        switch(periodType) {
+            case 'Weekly':
+                for (let i = 0; i < 52; i++) {
+                    const year = currentYear - Math.floor(i / 52);
+                    const week = 52 - (i % 52);
+                    options.push({
+                        id: `${year}W${week.toString().padStart(2, '0')}`,
+                        name: `Week ${week}, ${year}`
+                    });
+                }
+                break;
+            case 'Daily':
+                for (let i = 0; i < 90; i++) {
+                    const date = new Date(currentDate);
+                    date.setDate(date.getDate() - i);
+                    const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
+                    options.push({
+                        id: dateStr,
+                        name: date.toLocaleDateString()
+                    });
+                }
+                break;
+            case 'Monthly':
+                for (let i = 0; i < 24; i++) {
+                    const date = new Date(currentYear, currentDate.getMonth() - i, 1);
+                    const year = date.getFullYear();
+                    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                    options.push({
+                        id: `${year}${month}`,
+                        name: date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+                    });
+                }
+                break;
+            case 'Yearly':
+                for (let i = 0; i < 10; i++) {
+                    const year = currentYear - i;
+                    options.push({
+                        id: year.toString(),
+                        name: year.toString()
+                    });
+                }
+                break;
+            default:
+                for (let i = 0; i < 12; i++) {
+                    const date = new Date(currentYear, currentDate.getMonth() - i, 1);
+                    const year = date.getFullYear();
+                    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                    options.push({
+                        id: `${year}${month}`,
+                        name: date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+                    });
+                }
+        }
+        return options;
+    }
+};
+
+window.showDatasetInfo = function(data) {
+    console.log('🔍 showDatasetInfo called with:', data);
+    const infoDiv = document.getElementById('dataset-info-display');
+    const periodSection = document.getElementById('period-selection-section');
+    console.log('📍 Found elements:', {infoDiv, periodSection});
+    
+    infoDiv.innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Dataset Information</h6>
+                <ul class="list-unstyled">
+                    <li><strong>Name:</strong> ${data.dataset_name}</li>
+                    <li><strong>Period Type:</strong> <span class="badge bg-info">${data.period_type}</span></li>
+                    <li><strong>Elements:</strong> ${data.total_elements}</li>
+                    <li><strong>Parent Org Unit:</strong> ${data.parent_org_unit.name}</li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <h6>Compatibility Check</h6>
+                <div class="mb-2">
+                    ${data.same_dataset_exists ? 
+                        '<div class="badge bg-success">✓ Same dataset exists in destination</div>' : 
+                        '<div class="badge bg-warning">⚠ Dataset mapping required</div>'
+                    }
+                </div>
+                ${data.has_attributes ? 
+                    '<div class="badge bg-info">ℹ Has attribute options</div>' : 
+                    '<div class="badge bg-secondary">No attributes</div>'
+                }
+            </div>
+        </div>
+    `;
+    
+    console.log('📄 Setting innerHTML complete, showing section');
+    periodSection.style.display = 'block';
+    console.log('✅ Period section should now be visible');
+}
+
+window.showPeriodPicker = function(periodType) {
+    const container = document.getElementById('period-picker-container');
+    
+    // Generate period options based on periodType
+    let periodOptions = Transfer.generatePeriodOptions(periodType);
+    
+    container.innerHTML = `
+        <div class="mb-2">
+            <select class="form-select" id="period-type-select" onchange="addSelectedPeriod()">
+                <option value="">Select a ${periodType.toLowerCase()} period...</option>
+                ${periodOptions.map(period => 
+                    `<option value="${period.id}">${period.name}</option>`
+                ).join('')}
+            </select>
+        </div>
+        <div class="btn-group btn-group-sm mb-2" role="group">
+            <button type="button" class="btn btn-outline-primary" onclick="selectRecentPeriods()">Last 6 Periods</button>
+            <button type="button" class="btn btn-outline-primary" onclick="selectYearPeriods()">This Year</button>
+            <button type="button" class="btn btn-outline-secondary" onclick="clearSelectedPeriods()">Clear All</button>
+        </div>
+    `;
+}
+
+function generatePeriodOptions(periodType) {
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const options = [];
+    
+    switch(periodType) {
+        case 'Daily':
+            // Generate last 90 days
+            for (let i = 0; i < 90; i++) {
+                const date = new Date(currentDate);
+                date.setDate(date.getDate() - i);
+                const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
+                options.push({
+                    id: dateStr,
+                    name: date.toLocaleDateString()
+                });
+            }
+            break;
+            
+        case 'Weekly':
+            // Generate last 52 weeks
+            for (let i = 0; i < 52; i++) {
+                const year = currentYear - Math.floor(i / 52);
+                const week = 52 - (i % 52);
+                options.push({
+                    id: `${year}W${week.toString().padStart(2, '0')}`,
+                    name: `Week ${week}, ${year}`
+                });
+            }
+            break;
+            
+        case 'Monthly':
+            // Generate last 24 months
+            for (let i = 0; i < 24; i++) {
+                const date = new Date(currentYear, currentDate.getMonth() - i, 1);
+                const year = date.getFullYear();
+                const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                options.push({
+                    id: `${year}${month}`,
+                    name: date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+                });
+            }
+            break;
+            
+        case 'Yearly':
+            // Generate last 10 years
+            for (let i = 0; i < 10; i++) {
+                const year = currentYear - i;
+                options.push({
+                    id: year.toString(),
+                    name: year.toString()
+                });
+            }
+            break;
+            
+        default:
+            // Fallback - generate monthly periods
+            for (let i = 0; i < 12; i++) {
+                const date = new Date(currentYear, currentDate.getMonth() - i, 1);
+                const year = date.getFullYear();
+                const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                options.push({
+                    id: `${year}${month}`,
+                    name: date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+                });
+            }
+    }
+    
+    return options;
+}
+
+function addSelectedPeriod() {
+    const select = document.getElementById('period-type-select');
+    const selectedValue = select.value;
+    const selectedText = select.selectedOptions[0].text;
+    
+    if (!selectedValue || selectedPeriods.includes(selectedValue)) {
+        return;
+    }
+    
+    selectedPeriods.push(selectedValue);
+    updateSelectedPeriodsDisplay();
+    select.value = '';
+}
+
+function updateSelectedPeriodsDisplay() {
+    const display = document.getElementById('selected-periods-display');
+    const previewBtn = document.getElementById('preview-data-btn');
+    
+    if (selectedPeriods.length === 0) {
+        display.innerHTML = '<small class="text-muted">No periods selected</small>';
+        previewBtn.disabled = true;
+    } else {
+        const periodNames = selectedPeriods.map(periodId => {
+            const select = document.getElementById('period-type-select');
+            const option = Array.from(select.options).find(opt => opt.value === periodId);
+            return option ? option.text : periodId;
+        });
+        
+        display.innerHTML = periodNames.map(name => 
+            `<span class="badge bg-primary me-1 mb-1">${name} <button type="button" class="btn-close btn-close-white ms-1" onclick="removePeriod('${selectedPeriods[periodNames.indexOf(name)]}')"></button></span>`
+        ).join('');
+        
+        previewBtn.disabled = false;
+    }
+}
+
+window.removePeriod = function(periodId) {
+    selectedPeriods = selectedPeriods.filter(p => p !== periodId);
+    updateSelectedPeriodsDisplay();
+}
+
+window.clearSelectedPeriods = function() {
+    selectedPeriods = [];
+    updateSelectedPeriodsDisplay();
+}
+
+window.selectRecentPeriods = function() {
+    const select = document.getElementById('period-type-select');
+    const options = Array.from(select.options).slice(1, 7); // Get first 6 options (excluding placeholder)
+    selectedPeriods = options.map(opt => opt.value);
+    updateSelectedPeriodsDisplay();
+}
+
+window.selectYearPeriods = function() {
+    const periodType = datasetInfo.period_type;
+    const currentYear = new Date().getFullYear();
+    const select = document.getElementById('period-type-select');
+    
+    selectedPeriods = [];
+    Array.from(select.options).forEach(option => {
+        if (option.value && option.value.includes(currentYear.toString())) {
+            selectedPeriods.push(option.value);
+        }
+    });
+    updateSelectedPeriodsDisplay();
+}
+
+window.showAttributeOptions = function(attributes) {
+    const attributeSection = document.getElementById('attribute-selection');
+    const attributeSelect = document.getElementById('attribute-combo');
+    
+    attributeSelect.innerHTML = '<option value="">Default (no attribute)</option>';
+    attributes.forEach(attr => {
+        const option = document.createElement('option');
+        option.value = attr.id;
+        option.textContent = attr.displayName;
+        attributeSelect.appendChild(option);
+    });
+    
+    attributeSection.style.display = 'block';
+}
+
+window.previewSelectedData = async function() {
+    if (selectedPeriods.length === 0) {
+        showError('Please select at least one period');
+        return;
+    }
+    
+    const previewBtn = document.getElementById('preview-data-btn');
+    previewBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Loading Data...';
+    previewBtn.disabled = true;
+    
+    try {
+        const attributeSelect = document.getElementById('attribute-combo');
+        const selectedAttribute = attributeSelect ? attributeSelect.value : null;
+        
+        const response = await fetch('/api/preview-data', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                dataset_id: datasetInfo.dataset_id,
+                periods: selectedPeriods,
+                attribute_option_combo: selectedAttribute
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            showDataPreview(data);
+            
+            if (data.ready_for_sync) {
+                showSyncButton(needsMapping ? 'Start Sync with Mapping' : 'Start Direct Sync');
+            }
+        } else {
+            const errorText = await response.text();
+            showError(`Failed to preview data: ${errorText}`);
+        }
+    } catch (error) {
+        showError(`Error previewing data: ${error.message}`);
+    } finally {
+        previewBtn.innerHTML = '<i class="bi bi-search me-1"></i>Preview Data for Selected Periods';
+        previewBtn.disabled = false;
+    }
+}
+
+window.showDataPreview = function(data) {
+    const previewSection = document.getElementById('data-preview-section');
+    const previewContent = document.getElementById('data-preview-content');
+    
+    // Get period names for display
+    const periodNames = data.selected_periods.map(periodId => {
+        const select = document.getElementById('period-type-select');
+        const option = Array.from(select.options).find(opt => opt.value === periodId);
+        return option ? option.text : periodId;
+    });
+    
+    previewContent.innerHTML = `
+        <div class="row">
+            <div class="col-md-4">
+                <h6>Data Summary</h6>
+                <ul class="list-unstyled">
+                    <li><strong>Dataset:</strong> ${datasetInfo.dataset_name}</li>
+                    <li><strong>Total Data Values:</strong> ${data.total_data_values}</li>
+                    <li><strong>Selected Attribute:</strong> ${data.selected_attribute || 'None'}</li>
+                </ul>
+            </div>
+            <div class="col-md-4">
+                <h6>Selected Periods</h6>
+                <div class="small">${data.selected_periods.length} periods selected:</div>
+                <div class="small text-muted">${periodNames.slice(0, 3).join(', ')}${periodNames.length > 3 ? '...' : ''}</div>
+            </div>
+            <div class="col-md-4">
+                <h6>Organization Units</h6>
+                <div class="small">${data.org_units_with_data} org units with data</div>
+                <div class="small text-muted">${data.org_units.slice(0, 3).join(', ')}${data.org_units.length > 3 ? '...' : ''}</div>
+            </div>
+        </div>
+        
+        <div class="mt-3">
+            ${data.ready_for_sync ? 
+                '<div class="badge bg-success">✓ Ready for synchronization</div>' : 
+                '<div class="badge bg-danger">✗ Not ready for sync</div>'
+            }
+            ${data.compatible_org_units ? 
+                '<div class="badge bg-success ms-2">✓ Compatible org units</div>' : 
+                '<div class="badge bg-warning ms-2">⚠ ${data.incompatible_org_units} org units need mapping</div>'
+            }
+            ${data.total_data_values > 0 ? 
+                `<div class="badge bg-info ms-2">📊 ${data.total_data_values} data values found</div>` : 
+                '<div class="badge bg-secondary ms-2">No data values found</div>'
+            }
+        </div>
+    `;
+    
+    previewSection.style.display = 'block';
+}
+
+window.showPeriodSelection = function(periods) {
+    const periodSection = document.getElementById('period-selection-section');
+    const periodCheckboxes = document.getElementById('period-checkboxes');
+    
+    periodCheckboxes.innerHTML = '';
+    selectedPeriods = [];
+    
+    periods.forEach((period, index) => {
+        const col = document.createElement('div');
+        col.className = 'col-md-3 mb-2';
+        col.innerHTML = `
+            <div class="form-check">
+                <input class="form-check-input period-checkbox" type="checkbox" value="${period}" id="period_${index}">
+                <label class="form-check-label" for="period_${index}">
+                    ${period}
+                </label>
+            </div>
+        `;
+        periodCheckboxes.appendChild(col);
+    });
+    
+    // Add event listeners to checkboxes
+    document.querySelectorAll('.period-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectedPeriods);
+    });
+    
+    periodSection.style.display = 'block';
+}
+
+function selectAllPeriods() {
+    document.querySelectorAll('.period-checkbox').forEach(checkbox => {
+        checkbox.checked = true;
+    });
+    updateSelectedPeriods();
+}
+
+function clearAllPeriods() {
+    document.querySelectorAll('.period-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    updateSelectedPeriods();
+}
+
+function updateSelectedPeriods() {
+    selectedPeriods = Array.from(document.querySelectorAll('.period-checkbox:checked')).map(cb => cb.value);
+    
+    const syncBtn = document.getElementById('start-sync-btn');
+    const syncBtnSection = document.getElementById('sync-button-section');
+    
+    if (selectedPeriods.length > 0) {
+        syncBtnSection.style.display = 'block';
+        syncBtn.disabled = false;
+        
+        if (!needsMapping) {
+            document.getElementById('sync-btn-text').textContent = `Start Direct Sync (${selectedPeriods.length} periods)`;
+        } else {
+            document.getElementById('sync-btn-text').textContent = `Start Sync with Mapping (${selectedPeriods.length} periods)`;
+        }
+    } else {
+        syncBtn.disabled = true;
+    }
+}
+
+window.showMappingRequired = function(data) {
+    const mappingSection = document.getElementById('mapping-section');
+    const mappingDetails = document.getElementById('mapping-details');
+    
+    let message = 'Mapping is required because: ';
+    if (!data.same_dataset_exists) {
+        message += 'dataset ID not found in destination';
+    }
+    if (!data.compatible_org_units) {
+        message += (data.same_dataset_exists ? '' : ' and ') + 'org unit IDs differ between instances';
+    }
+    
+    mappingDetails.innerHTML = message;
+    mappingSection.style.display = 'block';
+}
+
+async function loadDestinationDatasets() {
+    try {
+        const response = await fetch('/api/datasets?instance=dest');
+        if (response.ok) {
+            const data = await response.json();
+            const destSelect = document.getElementById('dest_dataset');
+            
+            destSelect.innerHTML = '<option value="">Select destination dataset...</option>';
+            data.datasets.forEach(dataset => {
+                const option = document.createElement('option');
+                option.value = dataset.id;
+                option.textContent = dataset.displayName;
+                destSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading destination datasets:', error);
+    }
+}
+
+window.showSyncButton = function(text) {
+    const syncBtnSection = document.getElementById('sync-button-section');
+    const syncBtn = document.getElementById('start-sync-btn');
+    
+    document.getElementById('sync-btn-text').textContent = text;
+    syncBtn.disabled = selectedPeriods.length === 0;
+    syncBtnSection.style.display = 'block';
+}
+
+window.resetFlow = function() {
+    resetToStep1();
+    document.getElementById('source_dataset').value = '';
+    document.getElementById('load-dataset-btn').disabled = true;
+}
+
+function resetToStep1() {
+    document.getElementById('data-preview-section').style.display = 'none';
+    document.getElementById('period-selection-section').style.display = 'none';
+    document.getElementById('mapping-section').style.display = 'none';
+    document.getElementById('sync-button-section').style.display = 'none';
+    selectedPeriods = [];
+    availableData = null;
+    needsMapping = false;
+}
+
+window.showError = function(message) {
+    const statusDiv = document.getElementById('sync-status');
+    statusDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>${message}</div>`;
+}
+
+window.startSync = async function() {
+    const statusDiv = document.getElementById('sync-status');
+    const progressDiv = document.getElementById('sync-progress');
+    
+    // Prepare sync data
+    const sourceDataset = document.getElementById('source_dataset').value;
+    const destDataset = needsMapping ? document.getElementById('dest_dataset').value : sourceDataset;
+    const includeParents = document.getElementById('include_parents').checked;
+    const threshold = parseInt(document.getElementById('threshold').value) || 0;
+    
+    const syncData = {
+        source_dataset: sourceDataset,
+        dest_dataset: destDataset,
+        periods: selectedPeriods,
+        needs_mapping: needsMapping,
+        include_parents: includeParents,
+        threshold: threshold
+    };
+    
+    statusDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split me-2"></i>Starting synchronization...</div>';
+    progressDiv.style.display = 'block';
+    progressDiv.innerHTML = `
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Sync Progress</h6>
+                <div class="badge bg-primary" id="sync-status-badge">Starting...</div>
+            </div>
+            <div class="card-body">
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%" id="sync-progress-bar">0%</div>
+                </div>
+                
+                <!-- Current activity display -->
+                <div class="mb-3">
+                    <div class="small text-muted mb-1">Current Activity:</div>
+                    <div id="current-activity" class="fw-bold">Initializing sync...</div>
+                </div>
+                
+                <!-- Messages with scrollable area -->
+                <div class="small text-muted mb-1">Detailed Progress Log:</div>
+                <div id="sync-messages" class="border rounded p-2 bg-light" style="height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; line-height: 1.3;">
+                    <div class="text-muted">Waiting for sync to begin...</div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    try {
+        const response = await fetch('/start-sync', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(syncData),
+            credentials: 'same-origin'
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Sync started, result:', result);
+            if (result.task_id) {
+                // Small delay to ensure DOM elements are rendered
+                setTimeout(() => {
+                    pollSyncProgress(result.task_id);
+                }, 100);
+            } else {
+                console.error('No task_id in response:', result);
+                statusDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>No task ID returned from server</div>`;
+            }
+        } else {
+            const errorText = await response.text();
+            console.error('Sync start failed:', response.status, errorText);
+            statusDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>Sync failed: ${errorText}</div>`;
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>Error: ${error.message}</div>`;
+    }
+}
+
+window.pollSyncProgress = async function(taskId) {
+    console.log('Starting progress polling for task:', taskId);
+    
+    const progressBar = document.getElementById('sync-progress-bar');
+    const messagesDiv = document.getElementById('sync-messages');
+    const statusDiv = document.getElementById('sync-status');
+    const statusBadge = document.getElementById('sync-status-badge');
+    const currentActivity = document.getElementById('current-activity');
+    
+    console.log('Progress elements found:', {
+        progressBar: !!progressBar,
+        messagesDiv: !!messagesDiv,
+        statusDiv: !!statusDiv,
+        statusBadge: !!statusBadge,
+        currentActivity: !!currentActivity
+    });
+    
+    // If critical elements are missing, wait a bit more and try again
+    if (!progressBar || !messagesDiv) {
+        console.warn('Critical progress elements not found, retrying in 500ms...');
+        setTimeout(() => pollSyncProgress(taskId), 500);
+        return;
+    }
+    
+    let pollCount = 0;
+    const interval = setInterval(async () => {
+        try {
+            pollCount++;
+            const response = await fetch(`/progress/${taskId}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const progress = await response.json();
+            
+            // Log progress for debugging
+            console.log(`Poll #${pollCount}: Status=${progress.status}, Progress=${progress.progress}%, Messages=${progress.messages?.length || 0}`);
+            
+            // Update progress bar
+            if (progressBar) {
+                progressBar.style.width = progress.progress + '%';
+                progressBar.textContent = progress.progress + '%';
+                
+                // Update progress bar color based on status
+                if (progress.status === 'error') {
+                    progressBar.className = 'progress-bar bg-danger';
+                } else if (progress.status === 'completed') {
+                    progressBar.className = 'progress-bar bg-success';
+                } else {
+                    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+                }
+            }
+            
+            // Update status badge
+            if (statusBadge) {
+                if (progress.status === 'running') {
+                    statusBadge.className = 'badge bg-primary';
+                    statusBadge.textContent = 'Running...';
+                } else if (progress.status === 'completed') {
+                    statusBadge.className = 'badge bg-success';
+                    statusBadge.textContent = 'Completed';
+                } else if (progress.status === 'error') {
+                    statusBadge.className = 'badge bg-danger';
+                    statusBadge.textContent = 'Error';
+                }
+            }
+            
+            // Update current activity
+            if (currentActivity && progress.messages && progress.messages.length > 0) {
+                const latestMessage = progress.messages[progress.messages.length - 1];
+                currentActivity.textContent = latestMessage;
+            }
+            
+            // Update messages with enhanced formatting
+            if (messagesDiv && progress.messages) {
+                // Show more messages and keep track of what we've already displayed
+                const displayMessages = progress.messages.slice(-50); // Show last 50 messages instead of 15
+                messagesDiv.innerHTML = displayMessages.map((msg, index) => {
+                    const timestamp = new Date().toLocaleTimeString();
+                    
+                    // Enhanced message formatting with more patterns
+                    if (msg.includes('Processing ') && msg.includes('/')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <strong class="text-primary">${msg}</strong></div>`;
+                    } else if (msg.includes('✓') || msg.includes('SUCCESS') || msg.includes('successful') || msg.includes('complete!')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <span class="text-success fw-bold">${msg}</span></div>`;
+                    } else if (msg.includes('ERROR') || msg.includes('✗') || msg.includes('failed') || msg.includes('❌')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <span class="text-danger fw-bold">${msg}</span></div>`;
+                    } else if (msg.includes('🎉') || msg.includes('📊')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <span class="text-success fs-6 fw-bold">${msg}</span></div>`;
+                    } else if (msg.includes('Step') || msg.includes('Discovering') || msg.includes('Starting') || msg.includes('Using dataset:')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <em class="text-primary fw-bold">${msg}</em></div>`;
+                    } else if (msg.includes('data values') || msg.includes('transferred') || msg.includes('POST api/') || msg.includes('GET api/') || msg.includes('Updated ')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <span class="text-info">${msg}</span></div>`;
+                    } else if (msg.includes('Looking up') || msg.includes('Found ') || msg.includes('Retrieved ')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <span class="text-secondary">${msg}</span></div>`;
+                    } else if (msg.includes('⚠') || msg.includes('Warning:') || msg.includes('not found')) {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <span class="text-warning">${msg}</span></div>`;
+                    } else {
+                        return `<div class="mb-1"><span class="text-muted">[${timestamp}]</span> <span class="text-dark">${msg}</span></div>`;
+                    }
+                }).join('');
+                
+                // Auto-scroll to bottom
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+            
+            if (progress.status === 'completed') {
+                clearInterval(interval);
+                
+                // Show detailed completion summary
+                let summaryHtml = '<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>Synchronization completed successfully!</div>';
+                
+                if (progress.result) {
+                    const result = progress.result;
+                    summaryHtml += `
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">Sync Summary</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <div class="h4 text-success">${result.total_org_units_processed || 0}</div>
+                                            <div class="small text-muted">Org Units Processed</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <div class="h4 text-primary">${result.total_data_values_transferred || 0}</div>
+                                            <div class="small text-muted">Data Values Transferred</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <div class="h4 text-info">${result.periods_processed || selectedPeriods.length}</div>
+                                            <div class="small text-muted">Periods Processed</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <div class="h4 text-warning">${result.completion_registrations || 0}</div>
+                                            <div class="small text-muted">Completions Registered</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                statusDiv.innerHTML = summaryHtml;
+            } else if (progress.status === 'error') {
+                clearInterval(interval);
+                statusDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-x-circle me-2"></i>Synchronization failed. 
+                        ${progress.error ? `<br><small>Error: ${progress.error}</small>` : ''}
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error(`Progress polling error (poll #${pollCount}):`, error);
+            // Continue polling even on errors, but with longer delay
+            setTimeout(() => {
+                console.log('Retrying progress poll after error...');
+            }, 1000);
+        }
+    }, 1000); // Reduced from 2000ms to 1000ms for more responsive updates
+}
+</script>
+<script>
+async function startMetadataAssessment() {
+    const scope = Array.from(document.querySelectorAll('#metadata-scope-form input[type="checkbox"]:checked')).map(cb => cb.value)
+    const progressDiv = document.getElementById('metadata-progress')
+    const resultsDiv = document.getElementById('metadata-results')
+    progressDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split me-2"></i>Starting metadata assessment...</div>'
+    resultsDiv.innerHTML = ''
+    setMetadataUIRunning(true)
+    // Hide post-assessment actions until completed
+    document.getElementById('metadata-actions').style.display = 'none'
+
+    try {
+        const resp = await fetch('/metadata/diff', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ types: scope })
+        })
+        if (!resp.ok) {
+            throw new Error(await resp.text())
+        }
+        const { task_id } = await resp.json()
+        pollMetadataProgress(task_id)
+    } catch (e) {
+        progressDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>${e.message}</div>`
+        setMetadataUIRunning(false)
+    }
+}
+
+async function pollMetadataProgress(taskId) {
+    const progressDiv = document.getElementById('metadata-progress')
+    const resultsDiv = document.getElementById('metadata-results')
+    let timer = null
+
+    const render = (progress) => {
+        const pct = progress.progress || 0
+        const status = progress.status || 'unknown'
+        const msgs = (progress.messages || []).slice(-10)
+        progressDiv.innerHTML = `
+            <div class="mb-2">Status: <span class="badge ${status==='completed'?'bg-success':status==='error'?'bg-danger':'bg-primary'}">${status}</span></div>
+            <div class="progress mb-2"><div class="progress-bar" role="progressbar" style="width:${pct}%">${pct}%</div></div>
+            <div class="small text-muted" style="max-height: 140px; overflow:auto;">${msgs.map(m => `<div>${m}</div>`).join('')}</div>
+        `
+    }
+
+    const tick = async () => {
+        try {
+            const r = await fetch(`/metadata/progress/${taskId}`)
+            if (!r.ok) throw new Error(`HTTP ${r.status}`)
+            const p = await r.json()
+            render(p)
+            if (p.status === 'completed') {
+                clearInterval(timer)
+                renderResults(p.results)
+                setMetadataUIRunning(false)
+                // Show post-assessment actions
+                document.getElementById('metadata-actions').style.display = 'block'
+            } else if (p.status === 'error') {
+                clearInterval(timer)
+                setMetadataUIRunning(false)
+            }
+        } catch (_) {
+            clearInterval(timer)
+            setMetadataUIRunning(false)
+        }
+    }
+    timer = setInterval(tick, 800)
+    tick()
+}
+
+function setMetadataUIRunning(isRunning) {
+    const btn = document.getElementById('btn-run-assessment')
+    if (btn) btn.disabled = !!isRunning
+    // Disable scope checkboxes during run
+    document.querySelectorAll('#metadata-scope-form input[type="checkbox"]').forEach(cb => cb.disabled = !!isRunning)
+}
+
+function renderResults(results) {
+    const resultsDiv = document.getElementById('metadata-results')
+    if (!results) {
+        resultsDiv.innerHTML = '<div class="alert alert-warning">No results</div>'
+        return
+    }
+    // Keep results in memory for paging
+    window.mdResults = results
+    window.mdPage = window.mdPage || {}
+
+    const renderSectionList = (items, typeKey, sectionKey, pageSize = 25) => {
+        const stateKey = `${typeKey}:${sectionKey}`
+        const page = (window.mdPage[stateKey] || 1)
+        const start = 0
+        const end = page * pageSize
+        const slice = items.slice(start, end)
+        const left = Math.max(0, items.length - slice.length)
+        let body = ''
+        if (sectionKey === 'missing') {
+            body = slice.map(m => `<div class="small text-muted">${m.name || m.code || m.id}</div>`).join('')
+        } else if (sectionKey === 'conflicts') {
+            body = slice.map(c => `<div class="small text-muted">${c.name || c.code || c.id}</div>`).join('')
+        } else if (sectionKey === 'suggestions') {
+            body = slice.map(s => `<div class="small text-muted">${s.source.name || s.source.code || s.source.id} → ${s.dest.name || s.dest.code || s.dest.id} (${s.by}, ${s.confidence})</div>`).join('')
+        }
+        const moreBtn = left > 0 ? `<button class="btn btn-sm btn-outline-secondary mt-2" onclick="loadMoreMd('${typeKey}','${sectionKey}')">Load more (${left} remaining)</button>` : ''
+        return `${body}${moreBtn}`
+    }
+
+    window.loadMoreMd = (typeKey, sectionKey) => {
+        const stateKey = `${typeKey}:${sectionKey}`
+        window.mdPage[stateKey] = (window.mdPage[stateKey] || 1) + 1
+        // Rerender the specific section
+        const target = document.getElementById(`md-${typeKey}-${sectionKey}`)
+        if (!target) return
+        const data = window.mdResults[typeKey]
+        const list = sectionKey === 'missing' ? data.missing : sectionKey === 'conflicts' ? data.conflicts : data.suggestions
+        target.innerHTML = renderSectionList(list, typeKey, sectionKey)
+    }
+
+    const makeCard = (title, key, data) => `
+        <div class="card mb-3">
+            <div class="card-header"><strong>${title}</strong></div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-md-4"><div class="badge bg-secondary">Missing: ${data.missing.length}</div></div>
+                    <div class="col-md-4"><div class="badge bg-warning text-dark">Conflicts: ${data.conflicts.length}</div></div>
+                    <div class="col-md-4"><div class="badge bg-info">Suggestions: ${data.suggestions.length}</div></div>
+                </div>
+                <div class="accordion" id="acc-${key}">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="h-${key}-missing">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c-${key}-missing">Missing</button>
+                        </h2>
+                        <div id="c-${key}-missing" class="accordion-collapse collapse">
+                            <div class="accordion-body" id="md-${key}-missing">${renderSectionList(data.missing, key, 'missing')}</div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="h-${key}-conflicts">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c-${key}-conflicts">Conflicts</button>
+                        </h2>
+                        <div id="c-${key}-conflicts" class="accordion-collapse collapse">
+                            <div class="accordion-body" id="md-${key}-conflicts">${renderSectionList(data.conflicts, key, 'conflicts')}</div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="h-${key}-suggestions">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c-${key}-suggestions">Suggestions</button>
+                        </h2>
+                        <div id="c-${key}-suggestions" class="accordion-collapse collapse">
+                            <div class="accordion-body" id="md-${key}-suggestions">${renderSectionList(data.suggestions, key, 'suggestions')}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`
+
+    const order = [
+        'organisationUnits','categories','categoryCombos','categoryOptions','categoryOptionCombos','optionSets','dataElements','dataSets'
+    ]
+    let html = ''
+    for (const key of order) {
+        if (results[key]) {
+            html += makeCard(key, key, results[key])
+        }
+    }
+    resultsDiv.innerHTML = html || '<div class="alert alert-info">No differences detected.</div>'
+}
+
+function openSuggestionReview() {
+    if (!window.mdResults) {
+        alert('No results yet. Run an assessment first.')
+        return
+    }
+    const container = document.createElement('div')
+    container.className = 'modal fade'
+    container.id = 'mdSuggestModal'
+    container.tabIndex = -1
+    container.innerHTML = `
+    <div class="modal-dialog modal-xl">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-lightbulb me-2"></i>Metadata Mapping Suggestions</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="small text-muted mb-2">Select suggestions to save as mappings (stored in session).</div>
+          <div id="md-suggest-list" style="max-height:60vh; overflow:auto;"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" onclick="saveSelectedMappings()">Save Selected</button>
+        </div>
+      </div>
+    </div>`
+    document.body.appendChild(container)
+    const modal = new bootstrap.Modal(container)
+    modal.show()
+
+    // Render suggestions
+    const listDiv = container.querySelector('#md-suggest-list')
+    const order = ['organisationUnits','categories','categoryCombos','categoryOptions','categoryOptionCombos','optionSets','dataElements','dataSets']
+    let html = ''
+    for (const key of order) {
+        const sec = window.mdResults[key]
+        if (!sec || !sec.suggestions || sec.suggestions.length === 0) continue
+        html += `<div class="mb-2"><strong>${key}</strong></div>`
+        html += sec.suggestions.slice(0, 200).map((s, idx) => {
+            const sid = `${key}-${idx}`
+            const sName = s.source.name || s.source.code || s.source.id
+            const dName = s.dest.name || s.dest.code || s.dest.id
+            return `<div class="form-check">
+                <input class="form-check-input" type="checkbox" value="" id="chk-${sid}" data-type="${key}" data-source="${s.source.id}" data-dest="${s.dest.id}">
+                <label class="form-check-label" for="chk-${sid}">
+                    ${sName} → ${dName} <span class="text-muted">(${s.by}, ${s.confidence})</span>
+                </label>
+            </div>`
+        }).join('')
+        html += '<hr />'
+    }
+    listDiv.innerHTML = html || '<div class="text-muted">No suggestions available.</div>'
+}
+
+async function saveSelectedMappings() {
+    const checks = Array.from(document.querySelectorAll('#md-suggest-list .form-check-input:checked'))
+    if (checks.length === 0) {
+        alert('Select at least one suggestion to save')
+        return
+    }
+    const pairs = checks.map(chk => ({ type: chk.getAttribute('data-type'), sourceId: chk.getAttribute('data-source'), destId: chk.getAttribute('data-dest') }))
+    try {
+        const resp = await fetch('/metadata/mappings/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pairs })
+        })
+        if (!resp.ok) throw new Error(await resp.text())
+        const res = await resp.json()
+        alert(`Saved ${res.saved} mapping(s).`)
+    } catch (e) {
+        alert(`Failed to save mappings: ${e.message}`)
+    }
+}
+
+async function runMetadataDryRun() {
+    // Build minimal payload first
+    const scope = Array.from(document.querySelectorAll('#metadata-scope-form input[type="checkbox"]:checked')).map(cb => cb.value)
+    const preview = await fetch('/metadata/payload/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ types: scope })
+    }).then(r => r.json()).catch(() => ({}))
+    const payload = preview.payload || {}
+    const progressDiv = document.getElementById('metadata-progress')
+    progressDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split me-2"></i>Running dry-run...</div>'
+    try {
+        const resp = await fetch('/metadata/dry-run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payload, importStrategy: 'CREATE_AND_UPDATE', atomicMode: 'ALL' })
+        })
+        const body = await resp.json().catch(() => ({}))
+        if (!resp.ok || body.error) {
+            document.getElementById('metadata-results').innerHTML = `<div class="alert alert-danger">Dry-run failed: ${body.error || ''}</div>`
+        } else {
+            document.getElementById('metadata-results').innerHTML = renderImportReport('Dry-Run Import Report', body)
+        }
+    } catch (e) {
+        document.getElementById('metadata-results').innerHTML = `<div class="alert alert-danger">Dry-run error: ${e.message}</div>`
+    }
+}
+
+async function applyMetadataImport() {
+    if (!confirm('Are you sure you want to apply metadata changes to the destination? Make sure you ran a dry-run and reviewed the report.')) return
+    const progressDiv = document.getElementById('metadata-progress')
+    progressDiv.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle me-2"></i>Applying metadata... This may take a while.</div>'
+    try {
+        const scope = Array.from(document.querySelectorAll('#metadata-scope-form input[type="checkbox"]:checked')).map(cb => cb.value)
+        const preview = await fetch('/metadata/payload/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ types: scope })
+        }).then(r => r.json()).catch(() => ({}))
+        const payload = preview.payload || {}
+        const resp = await fetch('/metadata/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payload, importStrategy: 'CREATE_AND_UPDATE', atomicMode: 'ALL' })
+        })
+        const body = await resp.json().catch(() => ({}))
+        if (!resp.ok || body.error) {
+            document.getElementById('metadata-results').innerHTML = `<div class="alert alert-danger">Apply failed: ${body.error || ''}</div>`
+        } else {
+            document.getElementById('metadata-results').innerHTML = renderImportReport('Apply Import Report', body)
+        }
+    } catch (e) {
+        document.getElementById('metadata-results').innerHTML = `<div class="alert alert-danger">Apply error: ${e.message}</div>`
+    }
+}
+
+async function previewMetadataPayload() {
+    const scope = Array.from(document.querySelectorAll('#metadata-scope-form input[type="checkbox"]:checked')).map(cb => cb.value)
+    const progressDiv = document.getElementById('metadata-progress')
+    progressDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-eye me-2"></i>Building payload preview...</div>'
+    try {
+        const resp = await fetch('/metadata/payload/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ types: scope })
+        })
+        const body = await resp.json()
+        const summary = JSON.stringify(body.counts || {}, null, 2)
+        const snippet = JSON.stringify(body.payload || {}, null, 2).slice(0, 4000)
+        document.getElementById('metadata-results').innerHTML = `
+            <div class="card mt-3">
+                <div class="card-header"><strong>Payload Preview</strong></div>
+                <div class="card-body">
+                    <div class="mb-2"><strong>Counts by type</strong></div>
+                    <pre style="white-space: pre-wrap;">${summary}</pre>
+                    <div class="mb-2"><strong>Payload (truncated)</strong></div>
+                    <pre style="white-space: pre-wrap;">${snippet}</pre>
+                </div>
+            </div>`
+    } catch (e) {
+        document.getElementById('metadata-results').innerHTML = `<div class="alert alert-danger">Preview error: ${e.message}</div>`
+    }
+}
+
+function renderImportReport(title, raw) {
+    const report = raw?.response || raw
+    const importCount = report?.importCount || report?.stats || {}
+    const typeReports = report?.typeReports || []
+
+    const counts = {
+        imported: importCount.imported ?? importCount.created ?? 0,
+        updated: importCount.updated ?? 0,
+        ignored: importCount.ignored ?? importCount.failed ?? 0,
+        deleted: importCount.deleted ?? 0
+    }
+
+    const perType = typeReports.map(tr => {
+        const stats = tr.stats || tr.importCount || {}
+        const errors = (tr.objectReports || []).flatMap(o => (o.errorReports || []).map(e => e.message)).slice(0, 5)
+        const klass = tr.klass || tr.type || 'Unknown'
+        const typeName = (klass.includes('.') ? klass.split('.').pop() : klass)
+        return {
+            type: typeName,
+            imported: stats.imported ?? stats.created ?? 0,
+            updated: stats.updated ?? 0,
+            ignored: stats.ignored ?? stats.failed ?? 0,
+            errors
+        }
+    })
+
+    const header = `
+        <div class="card mt-3">
+          <div class="card-header"><strong>${title}</strong></div>
+          <div class="card-body">
+            <div class="row g-2 mb-2">
+              <div class="col-auto"><span class="badge bg-success">Imported: ${counts.imported}</span></div>
+              <div class="col-auto"><span class="badge bg-primary">Updated: ${counts.updated}</span></div>
+              <div class="col-auto"><span class="badge bg-warning text-dark">Ignored: ${counts.ignored}</span></div>
+              <div class="col-auto"><span class="badge bg-secondary">Deleted: ${counts.deleted}</span></div>
+            </div>
+            ${perType.length ? '<div class="mb-2"><strong>By type</strong></div>' : ''}
+            ${perType.map(p => `
+              <div class="border rounded p-2 mb-2">
+                <div class="fw-bold">${p.type}</div>
+                <div class="small">
+                  <span class="badge bg-success">Imported ${p.imported}</span>
+                  <span class="badge bg-primary ms-1">Updated ${p.updated}</span>
+                  <span class="badge bg-warning text-dark ms-1">Ignored ${p.ignored}</span>
+                </div>
+                ${p.errors.length ? `<div class="small text-danger mt-1">Errors: ${p.errors.map(e => `<div>• ${e}</div>`).join('')}</div>` : ''}
+              </div>`).join('')}
+          </div>
+        </div>
+    `
+
+    const rawSnippet = JSON.stringify(raw, null, 2).slice(0, 3000)
+    const rawBlock = `
+      <div class="card mt-2">
+        <div class="card-header"><strong>Raw Report (truncated)</strong></div>
+        <div class="card-body"><pre style="white-space: pre-wrap;">${rawSnippet}</pre></div>
+      </div>`
+
+    return header + rawBlock
+}
+</script>
