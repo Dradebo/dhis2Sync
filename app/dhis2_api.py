@@ -1,6 +1,7 @@
 import json
 import requests
 from typing import Optional, Dict, Any
+import time
 
 class Api:
     """DHIS2 API client - based on your existing CLI code"""
@@ -11,51 +12,52 @@ class Api:
         self.name_cache: Dict[str, str] = {}  # Cache for org unit names
 
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
-        """GET request to DHIS2 API"""
+        """GET request with timeout and simple retry on transient errors."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        print(f"Making GET request to: {url}")
-        print(f"With params: {params}")
-        print(f"Using auth: {self.auth[0]} / {'*' * len(self.auth[1])}")
-        
-        try:
-            response = requests.get(url, params=params, auth=self.auth, timeout=10)
-            # Show the actual URL that was requested (with query parameters)
-            print(f"Actual URL requested: {response.url}")
-            print(f"GET {url} - Status: {response.status_code}")
-            if response.status_code != 200:
-                print(f"Error response: {response.text[:200]}...")
-            else:
-                print("Success! Response received.")
-            return response
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-            # Return a mock response object for error handling
-            class MockResponse:
-                status_code = 500
-                text = str(e)
-                def json(self):
-                    return {"error": str(e)}
-            return MockResponse()
+        max_attempts = 3
+        backoff = 0.5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = requests.get(url, params=params, auth=self.auth, timeout=10)
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return resp
+            except requests.exceptions.RequestException:
+                if attempt == max_attempts:
+                    raise
+                time.sleep(backoff)
+                backoff *= 2
 
     def post(self, endpoint: str, json_payload: Dict[str, Any]) -> requests.Response:
-        """POST request to DHIS2 API"""
+        """POST with timeout and simple retry on transient errors."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         headers = {"Content-Type": "application/json"}
-        print(f"POST {url}")
-        print(f"Payload: {json.dumps(json_payload)[:200]}...")
-        response = requests.post(url, json=json_payload, auth=self.auth, headers=headers)
-        print(f"Response status: {response.status_code}")
-        print(f"Response body: {response.text[:200]}...")
-        return response
+        max_attempts = 3
+        backoff = 0.5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = requests.post(url, json=json_payload, auth=self.auth, headers=headers, timeout=15)
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return resp
+            except requests.exceptions.RequestException:
+                if attempt == max_attempts:
+                    raise
+                time.sleep(backoff)
+                backoff *= 2
 
     def get_org_unit_name(self, org_unit_id: str) -> str:
         """Get cached organization unit name with fallback to ID"""
         if org_unit_id not in self.name_cache:
             try:
-                response = self.get(f'api/organisationUnits/{org_unit_id}/gist')
+                response = self.get(f"api/organisationUnits/{org_unit_id}.json", params={"fields": "id,displayName,name"})
                 if response.status_code == 200:
-                    data = response.json()
-                    self.name_cache[org_unit_id] = data.get('name', org_unit_id)
+                    data = response.json() or {}
+                    self.name_cache[org_unit_id] = data.get("displayName") or data.get("name") or org_unit_id
                 else:
                     self.name_cache[org_unit_id] = org_unit_id
             except Exception:

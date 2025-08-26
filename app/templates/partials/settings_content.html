@@ -101,6 +101,177 @@
     </div>
 </div>
 
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h5 class="mb-0"><i class="bi bi-calendar2-week me-2"></i>Schedules</h5>
+        <button type="button" class="btn btn-sm btn-primary" onclick="openScheduleModal()"><i class="bi bi-plus-circle me-1"></i>New Schedule</button>
+      </div>
+      <div class="card-body">
+        <div id="schedules-status" class="mb-2"></div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="schedules-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Cron</th>
+                <th>Timezone</th>
+                <th>Enabled</th>
+                <th style="width:120px;" class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule Modal -->
+<div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">New Schedule</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Name</label>
+            <input id="sch_name" class="form-control" placeholder="e.g., Nightly Completeness" />
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Type</label>
+            <select id="sch_type" class="form-select">
+              <option value="transfer">Transfer</option>
+              <option value="completeness">Completeness</option>
+            </select>
+          </div>
+          <div class="col-md-3 d-flex align-items-end">
+            <div class="form-check">
+              <input id="sch_enabled" class="form-check-input" type="checkbox" checked />
+              <label class="form-check-label" for="sch_enabled">Enabled</label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Cron</label>
+            <input id="sch_cron" class="form-control" placeholder="0 2 * * *" />
+            <div class="mt-2 d-flex flex-wrap gap-2">
+              <button class="btn btn-outline-secondary btn-sm" type="button" onclick="applyCronPreset('0 * * * *')">Hourly</button>
+              <button class="btn btn-outline-secondary btn-sm" type="button" onclick="applyCronPreset('0 2 * * *')">Daily 02:00</button>
+              <button class="btn btn-outline-secondary btn-sm" type="button" onclick="applyCronPreset('0 3 * * 0')">Weekly Sun 03:00</button>
+              <button class="btn btn-outline-secondary btn-sm" type="button" onclick="applyCronPreset('0 4 1 * *')">Monthly 1st 04:00</button>
+            </div>
+            <div class="form-text">Cron (UTC). Preview: <code id="sch_cron_preview">—</code></div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Timezone</label>
+            <input id="sch_tz" class="form-control" value="UTC" />
+          </div>
+          <div class="col-12"><hr/></div>
+          <!-- Transfer flow -->
+          <div id="sch_flow_transfer" class="col-12">
+            <div class="alert alert-light border">
+              <div class="fw-bold mb-2"><i class="bi bi-arrow-left-right me-2"></i>Transfer Options</div>
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">Source Dataset</label>
+                  <div class="input-group">
+                    <input id="sch_tr_dataset" class="form-control" placeholder="DATASET_UID" />
+                    <button class="btn btn-outline-secondary" type="button" onclick="schToggleDatasetSelector('source')">Pick…</button>
+                  </div>
+                  <select id="sch_tr_dataset_select" class="form-select mt-2" style="display:none"></select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Periods</label>
+                  <div id="sch_tr_period_container"></div>
+                  <div class="mt-2 d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="schApplyTransferPeriodPreset('last6')">Last 6</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="schApplyTransferPeriodPreset('thisYear')">This Year</button>
+                  </div>
+                </div>
+                <div class="col-md-12">
+                  <div class="form-check mt-2">
+                    <input id="sch_mark_complete_tr" class="form-check-input" type="checkbox" />
+                    <label class="form-check-label" for="sch_mark_complete_tr">Mark complete after transfer</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Completeness flow -->
+          <div id="sch_flow_completeness" class="col-12" style="display:none;">
+            <div class="alert alert-light border">
+              <div class="fw-bold mb-2"><i class="bi bi-check2-square me-2"></i>Completeness Options</div>
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">Instance</label>
+                  <select id="sch_comp_instance" class="form-select">
+                    <option value="source">Source</option>
+                    <option value="dest">Destination</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Dataset</label>
+                  <div class="input-group">
+                    <input id="sch_comp_dataset" class="form-control" placeholder="DATASET_UID" />
+                    <button class="btn btn-outline-secondary" type="button" onclick="schToggleDatasetSelector('comp')">Pick…</button>
+                  </div>
+                  <select id="sch_comp_dataset_select" class="form-select mt-2" style="display:none"></select>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Select Periods</label>
+                  <div id="sch_comp_period_container"></div>
+                  <div class="mt-2 d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="schApplyCompPeriodPreset('last6')">Last 6</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="schApplyCompPeriodPreset('thisYear')">This Year</button>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Parent Org Units</label>
+                  <div id="sch_ou_tree" class="border rounded p-2" style="max-height: 180px; overflow:auto;"><div class="text-muted small">Select profile & dataset to load</div></div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Required Data Elements</label>
+                  <div id="sch_de_list" class="border rounded p-2" style="max-height: 180px; overflow:auto;"><div class="text-muted small">Default = all</div></div>
+                  <div class="mt-1 d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="schSelectAllDE()">All</button>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="schClearAllDE()">None</button>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Compliance Threshold (%)</label>
+                  <input id="sch_comp_threshold" type="number" class="form-control" value="100" />
+                </div>
+                <div class="col-md-6 d-flex align-items-end">
+                  <div class="form-check">
+                    <input id="sch_comp_include_parents" class="form-check-input" type="checkbox" />
+                    <label class="form-check-label" for="sch_comp_include_parents">Include Parents</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <hr/>
+          <div class="col-md-6">
+            <label class="form-label">Profile</label>
+            <select id="sch_profile" class="form-select"></select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" onclick="validateSchedule()">Validate</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" onclick="saveSchedule()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 async function testConnections() {
     const form = document.getElementById('connection-form');
@@ -228,7 +399,7 @@ async function loadSelectedProfile() {
         const resp = await fetch(`/settings/profile/${id}`);
         const body = await resp.json();
         if (!resp.ok) throw new Error(body.detail || body.message || 'Load failed');
-        status.innerHTML = `<div class="alert alert-success"><i class="bi bi-check-circle me-1"></i>Profile loaded into session: <strong>${body.name}</strong>. You can now use Transfer/Metadata.</div>`;
+        status.innerHTML = `<div class=\"alert alert-success\"><i class=\"bi bi-check-circle me-1\"></i>Profile loaded into session: <strong>${body.name}</strong>. You can now use Transfer/Metadata.</div>`;
         // Optionally show connected status in header
         const connectionStatus = document.querySelector('.connection-status');
         const connectionText = connectionStatus?.nextElementSibling;
@@ -261,9 +432,99 @@ async function deleteSelectedProfile() {
 // Load profiles when Settings tab is opened and on first load
 document.addEventListener('DOMContentLoaded', () => {
     refreshProfiles();
+    loadSchedules();
 });
 const settingsTabBtn = document.getElementById('settings-tab');
 if (settingsTabBtn) {
-    settingsTabBtn.addEventListener('click', () => setTimeout(refreshProfiles, 150));
+    settingsTabBtn.addEventListener('click', () => { setTimeout(refreshProfiles, 150); setTimeout(loadSchedules, 200); });
 }
+</script>
+
+<script>
+async function loadSchedules(){
+  const table = document.getElementById('schedules-table')?.querySelector('tbody');
+  const status = document.getElementById('schedules-status');
+  if (!table) return;
+  table.innerHTML = '<tr><td colspan="6" class="text-muted">Loading…</td></tr>';
+  try {
+    const r = await fetch('/schedules');
+    const list = await r.json();
+    window._schedulesCache = Array.isArray(list) ? list : [];
+    if (!Array.isArray(list) || list.length === 0) { table.innerHTML = '<tr><td colspan="6" class="text-muted">No schedules</td></tr>'; return; }
+    table.innerHTML = list.map(x => `
+      <tr>
+        <td>${x.name}</td>
+        <td>${x.job_type}</td>
+        <td><code>${x.cron}</code><div class="small text-muted">Next: ${x.next_run ? new Date(x.next_run).toLocaleString() : '—'}</div></td>
+        <td>${x.timezone || 'UTC'}</td>
+        <td>${x.enabled ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+        <td class="text-end">
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="editSchedule('${x.id}')">Edit</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteSchedule('${x.id}')">Delete</button>
+        </td>
+      </tr>`).join('');
+  } catch (e) { if (status) status.innerHTML = `<div class="alert alert-danger">${e.message}</div>`; }
+}
+
+function openScheduleModal(){
+  resetScheduleForm();
+  (async ()=>{
+    try { const resp = await fetch('/settings/profile/list'); const arr = await resp.json(); const sel = document.getElementById('sch_profile'); sel.innerHTML = arr.map(a => `<option value="${a.id}">${a.name}</option>`).join(''); } catch(_){}
+    try { new bootstrap.Modal(document.getElementById('scheduleModal')).show(); } catch(_){}
+  })();
+}
+
+function resetScheduleForm(){
+  document.getElementById('sch_name').value = '';
+  document.getElementById('sch_type').value = 'transfer';
+  document.getElementById('sch_enabled').checked = true;
+  document.getElementById('sch_cron').value = '';
+  document.getElementById('sch_tz').value = 'UTC';
+  document.getElementById('sch_cron_preview').textContent = '—';
+  schSyncFlowVisibility();
+}
+
+function applyCronPreset(expr){ const el = document.getElementById('sch_cron'); el.value = expr; updateCronPreview(); }
+function updateCronPreview(){ const v=(document.getElementById('sch_cron').value||'').trim(); const map={ '0 * * * *':'Hourly at minute 0','0 2 * * *':'Daily at 02:00','0 3 * * 0':'Weekly on Sunday at 03:00','0 4 1 * *':'Monthly on the 1st at 04:00'}; document.getElementById('sch_cron_preview').textContent = map[v] || '—'; }
+
+document.addEventListener('DOMContentLoaded', ()=>{ try{ document.getElementById('sch_type').addEventListener('change', schSyncFlowVisibility); }catch(_){}});
+function schSyncFlowVisibility(){ const t=(document.getElementById('sch_type')?.value||'transfer'); const tr=document.getElementById('sch_flow_transfer'); const co=document.getElementById('sch_flow_completeness'); if (tr) tr.style.display=(t==='transfer')?'block':'none'; if (co) co.style.display=(t==='completeness')?'block':'none'; }
+
+document.addEventListener('DOMContentLoaded', ()=>{ const profSel=document.getElementById('sch_profile'); if (profSel) profSel.addEventListener('change', async ()=>{ const prof=profSel.value; if (!prof) return; try { await fetch(`/settings/profile/${prof}`);} catch(_){}}); const compInst=document.getElementById('sch_comp_instance'); if (compInst) compInst.addEventListener('change', ()=>{ schLoadOUTree(); }); });
+
+async function schToggleDatasetSelector(mode){ const prof=document.getElementById('sch_profile')?.value; if (!prof){ alert('Select a profile first'); return; } try { await fetch(`/settings/profile/${prof}`);} catch(_){ } if (mode==='source'){ const sel=document.getElementById('sch_tr_dataset_select'); if (sel.style.display==='none'){ try{ const r=await fetch('/api/datasets?instance=source'); const j=await r.json(); sel.innerHTML=(j.datasets||[]).map(d=>`<option value="${d.id}">${d.displayName}</option>`).join('')||'<option value="">No datasets</option>'; sel.onchange=async ()=>{ document.getElementById('sch_tr_dataset').value=sel.value; await schLoadTransferDatasetInfo(); }; }catch(_){ sel.innerHTML='<option value="">Failed to load</option>'; } sel.style.display='block'; } else { sel.style.display='none'; } } else if (mode==='comp'){ const inst=document.getElementById('sch_comp_instance')?.value||'source'; const sel=document.getElementById('sch_comp_dataset_select'); if (sel.style.display==='none'){ try{ const r=await fetch(`/api/datasets?instance=${encodeURIComponent(inst)}`); const j=await r.json(); sel.innerHTML=(j.datasets||[]).map(d=>`<option value="${d.id}">${d.displayName}</option>`).join('')||'<option value="">No datasets</option>'; sel.onchange=async ()=>{ document.getElementById('sch_comp_dataset').value=sel.value; await schLoadCompDatasetInfo(); }; }catch(_){ sel.innerHTML='<option value="">Failed to load</option>'; } sel.style.display='block'; } else { sel.style.display='none'; } } }
+
+window._sch_tr_periods=[]; window._sch_tr_periodType='Monthly'; window._sch_comp_periods=[]; window._sch_comp_periodType='Monthly';
+function schGeneratePeriodOptions(periodType){ const now=new Date(); const y=now.getFullYear(); const list=[]; switch(periodType){ case 'Daily': for(let i=0;i<90;i++){ const d=new Date(now); d.setDate(d.getDate()-i); const id=d.toISOString().split('T')[0].replace(/-/g,''); list.push({id,name:d.toLocaleDateString()}); } break; case 'Weekly': for(let i=0;i<52;i++){ const yy=y-Math.floor(i/52); const w=52-(i%52); list.push({id:`${yy}W${String(w).padStart(2,'0')}`, name:`Week ${w}, ${yy}`}); } break; case 'Yearly': for(let i=0;i<10;i++){ const yy=y-i; list.push({id:String(yy), name:String(yy)});} break; case 'Monthly': default: for(let i=0;i<24;i++){ const d=new Date(y, now.getMonth()-i, 1); const yy=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); list.push({id:`${yy}${m}`, name:d.toLocaleDateString('en-US',{year:'numeric',month:'long'})}); } } return list; }
+function schRenderPeriodPicker(containerId,arrayKey,periodType){ const container=document.getElementById(containerId); if(!container) return; const opts=schGeneratePeriodOptions(periodType); const selectId=containerId+'_select'; const selectedId=containerId+'_selected'; container.innerHTML=`<div class=\"mb-2\"><select class=\"form-select\" id=\"${selectId}\"><option value=\"\">Select a ${periodType.toLowerCase()} period...</option>${opts.map(o=>`<option value=\"${o.id}\">${o.name}</option>`).join('')}</select></div><div id=\"${selectedId}\" class=\"small text-muted\"></div>`; const sel=document.getElementById(selectId); sel.addEventListener('change', ()=>{ const v=sel.value; if(!v) return; const arr=(window[arrayKey] ||= []); if(!arr.includes(v)) arr.push(v); sel.value=''; schUpdateSelectedPeriodsDisplay(containerId,arrayKey); }); schUpdateSelectedPeriodsDisplay(containerId,arrayKey); }
+function schUpdateSelectedPeriodsDisplay(containerId,arrayKey){ const div=document.getElementById(containerId+'_selected'); if(!div) return; const arr=(window[arrayKey] ||= []); if(arr.length===0){ div.innerHTML='<small class=\"text-muted\">No periods selected</small>'; return; } div.innerHTML=arr.map(p=>`<span class=\"badge bg-primary me-1 mb-1\">${p} <button type=\"button\" class=\"btn-close btn-close-white btn-close-sm ms-1\" onclick=\"schRemovePeriod('${containerId}','${arrayKey}','${p}')\"></button></span>`).join(''); }
+function schRemovePeriod(containerId,arrayKey,id){ window[arrayKey]=(window[arrayKey]||[]).filter(x=>x!==id); schUpdateSelectedPeriodsDisplay(containerId,arrayKey); }
+function schApplyTransferPeriodPreset(kind){ const arr=[]; if(kind==='last6'){ const opts=schGeneratePeriodOptions(window._sch_tr_periodType||'Monthly'); arr.push(...opts.slice(0,6).map(o=>o.id)); } else if (kind==='thisYear'){ const y=new Date().getFullYear(); const opts=schGeneratePeriodOptions(window._sch_tr_periodType||'Monthly'); arr.push(...opts.filter(o=>o.id.includes(String(y))).map(o=>o.id)); } window._sch_tr_periods=arr; schUpdateSelectedPeriodsDisplay('sch_tr_period_container','_sch_tr_periods'); }
+function schApplyCompPeriodPreset(kind){ const arr=[]; if(kind==='last6'){ const opts=schGeneratePeriodOptions(window._sch_comp_periodType||'Monthly'); arr.push(...opts.slice(0,6).map(o=>o.id)); } else if (kind==='thisYear'){ const y=new Date().getFullYear(); const opts=schGeneratePeriodOptions(window._sch_comp_periodType||'Monthly'); arr.push(...opts.filter(o=>o.id.includes(String(y))).map(o=>o.id)); } window._sch_comp_periods=arr; schUpdateSelectedPeriodsDisplay('sch_comp_period_container','_sch_comp_periods'); }
+
+async function schLoadTransferDatasetInfo(){ const id=document.getElementById('sch_tr_dataset')?.value; if(!id) return; try{ const r=await fetch('/api/dataset-info',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dataset_id:id })}); if(!r.ok) throw new Error(await r.text()); const j=await r.json(); window._sch_tr_periodType=j.period_type||'Monthly'; schRenderPeriodPicker('sch_tr_period_container','_sch_tr_periods', window._sch_tr_periodType); }catch(_){}}
+
+window._sch_comp_selected_ou=new Set(); window._sch_comp_selected_de=new Set();
+async function schLoadCompDatasetInfo(){ const id=document.getElementById('sch_comp_dataset')?.value; if(!id) return; const inst=document.getElementById('sch_comp_instance')?.value||'source'; try{ const r=await fetch('/api/dataset-info-by-instance',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dataset_id:id, instance:inst })}); if(!r.ok) throw new Error(await r.text()); const j=await r.json(); window._sch_comp_periodType=j.period_type||'Monthly'; schRenderPeriodPicker('sch_comp_period_container','_sch_comp_periods', window._sch_comp_periodType); schRenderDEList(j.data_elements||[]); schLoadOUTree(); }catch(_){}}
+function schRenderDEList(elements){ const div=document.getElementById('sch_de_list'); if(!div) return; const items=(elements||[]).slice().sort((a,b)=>(a.displayName||'').localeCompare(b.displayName||'')); div.innerHTML=items.map(e=>{ const checked=window._sch_comp_selected_de.has(e.id)?'checked':''; return `<div class=\"form-check\"><input class=\"form-check-input\" type=\"checkbox\" id=\"sch_de_${e.id}\" ${checked} onchange=\"schToggleDE('${e.id}', this.checked)\"><label class=\"form-check-label\" for=\"sch_de_${e.id}\">${e.displayName||e.id}</label></div>`; }).join('')||'<div class=\"text-muted small\">No elements</div>'; }
+function schToggleDE(id,checked){ if(checked) window._sch_comp_selected_de.add(id); else window._sch_comp_selected_de.delete(id); }
+function schSelectAllDE(){ document.querySelectorAll('#sch_de_list .form-check-input').forEach(i=>{ i.checked=true; window._sch_comp_selected_de.add(i.id.replace('sch_de_','')); }); }
+function schClearAllDE(){ document.querySelectorAll('#sch_de_list .form-check-input').forEach(i=>{ i.checked=false; }); window._sch_comp_selected_de=new Set(); }
+
+async function schLoadOUTree(){ const inst=document.getElementById('sch_comp_instance')?.value||'source'; const tree=document.getElementById('sch_ou_tree'); if(!tree) return; tree.innerHTML='<div class=\"text-muted small\">Loading…</div>'; try{ const r=await fetch(`/api/organisation-units?instance=${encodeURIComponent(inst)}`); if(!r.ok) throw new Error(await r.text()); const roots=await r.json(); tree.innerHTML=schRenderOUTreeNodes(roots); }catch(e){ tree.innerHTML=`<div class=\"text-danger small\">${e.message}</div>`; }}
+function schRenderOUTreeNodes(nodes){ const sorted=(nodes||[]).slice().sort((a,b)=>(a.displayName||'').localeCompare(b.displayName||'')); return `<ul class=\"list-unstyled mb-0\">${sorted.map(n=>schRenderOUTreeNode(n)).join('')}</ul>`; }
+function schRenderOUTreeNode(n){ const checked=window._sch_comp_selected_ou.has(n.id)?'checked':''; const caret=n.hasChildren?`<button type=\"button\" class=\"btn btn-sm btn-secondary p-0 px-1 me-1\" onclick=\"schToggleOUTree('${n.id}', event)\" data-sch-ou-caret=\"${n.id}\"><i class=\"bi bi-caret-right-fill\" data-sch-ou-icon=\"${n.id}\"></i></button>`:'<span class=\"me-1\"></span>'; return `<li class=\"mb-1\" data-sch-ou-node=\"${n.id}\">${caret}<input class=\"form-check-input me-1\" type=\"checkbox\" id=\"sch_ou_${n.id}\" ${checked} onchange=\"schToggleOU('${n.id}', this.checked)\"><label for=\"sch_ou_${n.id}\" class=\"form-check-label\">${n.displayName||n.id}</label><div class=\"ms-4 mt-1\" data-sch-ou-children=\"${n.id}\" style=\"display:none;\"></div></li>`; }
+async function schToggleOUTree(id,ev){ try{ ev?.preventDefault(); ev?.stopPropagation(); }catch(_){} const cont=document.querySelector(`[data-sch-ou-children='${id}']`); if(!cont) return; if(cont.getAttribute('data-loaded')==='1'){ const visible=cont.style.display!=='none'; cont.style.display=visible?'none':'block'; const icon=document.querySelector(`[data-sch-ou-icon='${id}']`); if(icon) icon.className=visible?'bi bi-caret-right-fill':'bi bi-caret-down-fill'; return;} try{ const inst=document.getElementById('sch_comp_instance')?.value||'source'; const r=await fetch(`/api/organisation-units?parent=${encodeURIComponent(id)}&instance=${encodeURIComponent(inst)}`); if(!r.ok) throw new Error(await r.text()); const children=await r.json(); cont.innerHTML=schRenderOUTreeNodes(children); cont.setAttribute('data-loaded','1'); cont.style.display='block'; const icon=document.querySelector(`[data-sch-ou-icon='${id}']`); if(icon) icon.className='bi bi-caret-down-fill'; }catch(e){ cont.innerHTML=`<div class=\"text-danger small\">${e.message}</div>`; }}
+function schToggleOU(id,checked){ if(checked) window._sch_comp_selected_ou.add(id); else window._sch_comp_selected_ou.delete(id); }
+
+function buildPayloadByType(job_type){ const profile_id=document.getElementById('sch_profile').value; if(job_type==='transfer'){ const dataset_id=document.getElementById('sch_tr_dataset').value.trim(); const periods=(window._sch_tr_periods||[]).slice(); const mark_complete=document.getElementById('sch_mark_complete_tr').checked; return { profile_id, dataset_id, periods, parent_org_units: [], mark_complete }; } const instance=document.getElementById('sch_comp_instance').value; const dataset_id=document.getElementById('sch_comp_dataset').value.trim(); const periods=(window._sch_comp_periods||[]).slice(); const parent_org_units=Array.from(window._sch_comp_selected_ou||new Set()); const required_elements=Array.from(window._sch_comp_selected_de||new Set()); const threshold=parseInt(document.getElementById('sch_comp_threshold').value||'100',10); const include_parents=document.getElementById('sch_comp_include_parents').checked; return { profile_id, instance, dataset_id, periods, parent_org_units, required_elements, threshold, include_parents }; }
+
+async function saveSchedule(){ const name=document.getElementById('sch_name').value.trim(); const job_type=document.getElementById('sch_type').value; const enabled=document.getElementById('sch_enabled').checked; const cron=document.getElementById('sch_cron').value.trim(); const timezone=document.getElementById('sch_tz').value.trim()||'UTC'; const status=document.getElementById('schedules-status'); if(!name||!cron){ status.innerHTML='<div class=\"alert alert-warning\">Name and cron are required</div>'; return; } const payload=buildPayloadByType(job_type); if(job_type==='transfer'){ if(!payload.profile_id||!payload.dataset_id||payload.periods.length===0){ status.innerHTML='<div class=\"alert alert-warning\">Profile, dataset and periods are required for Transfer</div>'; return; } } else { if(!payload.profile_id||!payload.dataset_id||payload.periods.length===0||payload.parent_org_units.length===0){ status.innerHTML='<div class=\"alert alert-warning\">Profile, dataset, periods and org units are required for Completeness</div>'; return; } } const body={ name, job_type, cron, timezone, enabled, payload }; try{ const resp=await fetch('/schedules',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); const j=await resp.json(); if(!resp.ok) throw new Error(j.detail||j.message||'Save failed'); status.innerHTML='<div class=\"alert alert-success\">Schedule saved</div>'; loadSchedules(); try{ bootstrap.Modal.getInstance(document.getElementById('scheduleModal')).hide(); }catch(_){ } }catch(e){ status.innerHTML=`<div class=\"alert alert-danger\">${e.message}</div>`; }}
+
+async function deleteSchedule(id){ if(!confirm('Delete this schedule?')) return; const status=document.getElementById('schedules-status'); try{ const resp=await fetch(`/schedules/${id}`,{ method:'DELETE' }); const j=await resp.json(); if(!resp.ok) throw new Error(j.detail||j.message||'Delete failed'); status.innerHTML='<div class=\"alert alert-success\">Deleted</div>'; loadSchedules(); }catch(e){ status.innerHTML=`<div class=\"alert alert-danger\">${e.message}</div>`; } }
+
+function editSchedule(id){ openScheduleModal(); const row=(window._schedulesCache||[]).find(x=>x.id===id); if(!row) return; document.querySelector('#scheduleModal .modal-title').textContent='Edit Schedule'; document.getElementById('sch_name').value=row.name||''; document.getElementById('sch_type').value=row.job_type||'transfer'; document.getElementById('sch_enabled').checked=!!row.enabled; document.getElementById('sch_cron').value=row.cron||''; document.getElementById('sch_tz').value=row.timezone||'UTC'; try{ updateCronPreview(); }catch(_){ } const p=(row.payload && (typeof row.payload==='string'? JSON.parse(row.payload): row.payload))||{}; if(row.job_type==='transfer'){ document.getElementById('sch_tr_dataset').value=p.dataset_id||''; window._sch_tr_periods=Array.isArray(p.periods)? p.periods.slice(): []; document.getElementById('sch_mark_complete_tr').checked=!!p.mark_complete; schRenderPeriodPicker('sch_tr_period_container','_sch_tr_periods', window._sch_tr_periodType||'Monthly'); } else { document.getElementById('sch_comp_instance').value=p.instance||'source'; document.getElementById('sch_comp_dataset').value=p.dataset_id||''; window._sch_comp_periods=Array.isArray(p.periods)? p.periods.slice(): []; window._sch_comp_selected_ou=new Set(Array.isArray(p.parent_org_units)? p.parent_org_units: []); window._sch_comp_selected_de=new Set(Array.isArray(p.required_elements)? p.required_elements: []); document.getElementById('sch_comp_threshold').value=(p.threshold??100); document.getElementById('sch_comp_include_parents').checked=!!p.include_parents; schRenderPeriodPicker('sch_comp_period_container','_sch_comp_periods', window._sch_comp_periodType||'Monthly'); schLoadOUTree(); schRenderDEList([]); }
+}
+
+async function validateSchedule(){ const status=document.getElementById('schedules-status'); status.innerHTML='<div class=\"alert alert-info\">Validating…</div>'; try{ const prof=document.getElementById('sch_profile').value; if(!prof) throw new Error('Select a profile'); await fetch(`/settings/profile/${prof}`); const t=document.getElementById('sch_type').value; if(t==='transfer'){ const ds=document.getElementById('sch_tr_dataset').value.trim(); if(!ds) throw new Error('Source dataset is required'); const rr=await fetch('/api/dataset-info',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dataset_id: ds })}); if(!rr.ok) throw new Error(await rr.text()); if(!Array.isArray(window._sch_tr_periods)||window._sch_tr_periods.length===0) throw new Error('Select at least one period'); } else { const inst=document.getElementById('sch_comp_instance').value; const ds=document.getElementById('sch_comp_dataset').value.trim(); if(!ds) throw new Error('Dataset is required'); const rr=await fetch('/api/dataset-info-by-instance',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dataset_id: ds, instance: inst })}); if(!rr.ok) throw new Error(await rr.text()); if(!Array.isArray(window._sch_comp_periods)||window._sch_comp_periods.length===0) throw new Error('Select at least one period'); if(!(window._sch_comp_selected_ou && window._sch_comp_selected_ou.size>0)) throw new Error('Select at least one parent org unit'); } status.innerHTML='<div class=\"alert alert-success\">Validation passed</div>'; }catch(e){ status.innerHTML=`<div class=\"alert alert-danger\">${e.message}</div>`; } }
 </script>

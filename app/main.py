@@ -9,6 +9,7 @@ import json
 import difflib
 import datetime
 from starlette.middleware.sessions import SessionMiddleware
+import os
 import asyncio
 
 from .dhis2_api import Api
@@ -16,6 +17,8 @@ from .models import ConnectionForm, DatasetSelection, ElementMapping
 from .routes.completeness import router as completeness_router
 from .routes.metadata import router as metadata_router
 from .routes.settings_profiles import router as settings_profiles_router
+from .routes.schedules import router as schedules_router
+from .scheduler import start_scheduler_and_load_jobs
 from .db import engine
 from .models_db import Base
 
@@ -48,21 +51,29 @@ app = FastAPI(title="DHIS2 Data Exchange Tool")
 # Add WebSocket blocking middleware first
 app.add_middleware(WebSocketBlockerMiddleware)
 
-# Add session middleware
-app.add_middleware(SessionMiddleware, secret_key="your-secret-key-change-in-production")
+# Add session middleware (env-driven secret and cookie hardening)
+_secret_key = os.environ.get("SECRET_KEY", "change-me-in-prod")
+_env = (os.environ.get("ENVIRONMENT") or "development").lower()
+_secure_cookies = _env == "production"
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_secret_key,
+    https_only=_secure_cookies,
+    same_site="lax",
+)
 
 # Add CORS middleware for DHIS2 app integration
+# CORS allowlist from env (comma-separated)
+_cors = os.environ.get("CORS_ALLOW_ORIGINS")
+_origins = [o.strip() for o in _cors.split(",") if o.strip()] if _cors else [
+    "http://localhost:3000",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://emisuganda.org",
-        "https://dev.emisuganda.org",
-        "http://localhost:3000",
-        "https://malaria.health.go.ug"
-    ],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 
@@ -118,11 +129,16 @@ async def get_service_worker():
 app.include_router(completeness_router)
 app.include_router(metadata_router)
 app.include_router(settings_profiles_router)
+app.include_router(schedules_router)
 
-# Create tables if not present (for simple bootstrap; in production use Alembic migrations)
+# Create tables if not present and start scheduler
 try:
     Base.metadata.create_all(bind=engine)
 except Exception as _e:
+    pass
+try:
+    start_scheduler_and_load_jobs()
+except Exception:
     pass
 
 @app.get("/healthz")

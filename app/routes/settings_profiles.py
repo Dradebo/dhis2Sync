@@ -94,11 +94,9 @@ async def load_profile(profile_id: str, request: Request, db: Session = Depends(
     except InvalidToken:
         raise HTTPException(500, "Failed to decrypt stored credentials")
 
-    request.session["connections"] = {
-        "source": {"url": item.source_url, "username": item.source_username, "password": spw},
-        "dest": {"url": item.dest_url, "username": item.dest_username, "password": dpw},
-    }
-    return {"loaded": True, "name": item.name}
+    # Store only profile_id in session; resolve server-side when needed
+    request.session["profile_id"] = item.id
+    return {"loaded": True, "name": item.name, "profile_id": item.id}
 
 
 @router.delete("/{profile_id}")
