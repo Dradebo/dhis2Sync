@@ -89,15 +89,15 @@ class Api:
         return self.name_cache[org_unit_id]
 
     # ---- Tracker/Events helpers (Phase 1: events without registration) ----
-    def list_programs(self) -> requests.Response:
-        """List programs with minimal fields (programType, stages)."""
-        return self.get(
-            "api/programs",
-            params={
-                "fields": "id,displayName,programType,version,programStages[id,displayName]",
-                "paging": "false",
-            },
-        )
+    def list_programs(self, params: Optional[Dict[str, Any]] = None) -> requests.Response:
+        """List programs with optional params (filters/search). Uses .json endpoint for consistency."""
+        base_params = {
+            "fields": "id,displayName,programType,version,programStages[id,displayName]",
+            "paging": "false",
+        }
+        if params:
+            base_params.update(params)
+        return self.get("api/programs.json", params=base_params)
 
     def program_detail(self, program_id: str) -> requests.Response:
         """Get detailed program including stages and data elements."""

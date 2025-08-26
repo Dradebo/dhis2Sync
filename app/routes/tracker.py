@@ -66,18 +66,18 @@ def _load_progress(task_id: str) -> Optional[dict]:
 
 
 @router.get("/programs")
-async def list_programs(request: Request, instance: str = "source", include_all: bool = True):
-    """List programs. Optionally filter to event-only (WITHOUT_REGISTRATION) if include_all=False."""
+async def list_programs(request: Request, instance: str = "source", include_all: bool = True, q: str = ""):
+    """List programs. Optionally filter to event-only (WITHOUT_REGISTRATION) if include_all=False. Supports search via q."""
     connections = resolve_connections(request)
     if not connections or instance not in connections:
         raise HTTPException(400, f"No connection configured for {instance}")
 
     api = Api(**connections[instance])
-    resp = api.list_programs()
+    resp = api.list_programs(params={"filter": f"displayName:ilike:{q}"} if q else None)
     if resp.status_code != 200:
         raise HTTPException(400, f"Failed to fetch programs: HTTP {resp.status_code}")
     body = resp.json() or {}
-    programs = body.get("programs") or body.get("programs", []) or body.get("items", [])
+    programs = body.get("programs") or []
 
     if not include_all:
         programs = [p for p in programs if (p.get("programType") or "").upper() == "WITHOUT_REGISTRATION"]

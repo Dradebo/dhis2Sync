@@ -1192,12 +1192,22 @@ window.pollSyncProgress = async function(taskId) {
 const TrackerUI = {
   async loadPrograms() {
     try {
-      const r = await fetch('/tracker/programs?instance=source&include_all=true');
-      if (!r.ok) return;
+      const search = '';
+      const r = await fetch(`/tracker/programs?instance=source&include_all=true&q=${encodeURIComponent(search)}`);
+      if (!r.ok) {
+        const out = document.getElementById('trk-preview');
+        out.innerHTML = '<div class="alert alert-danger">Failed to load programs from source instance</div>';
+        return;
+      }
       const body = await r.json();
       const sel = document.getElementById('trk-program');
+      const items = body.programs || [];
       sel.innerHTML = '<option value="">Select program...</option>';
-      (body.programs || []).forEach(p => {
+      if (items.length === 0) {
+        const out = document.getElementById('trk-preview');
+        out.innerHTML = '<div class="alert alert-warning">No programs found. Ensure your user has access to programs in the source instance.</div>';
+      }
+      items.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.id; opt.textContent = `${p.displayName || p.id} (${p.programType || ''})`;
         sel.appendChild(opt);
