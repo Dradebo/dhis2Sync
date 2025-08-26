@@ -256,20 +256,52 @@
                             <div class="row g-3 mt-1">
                                 <div class="col-md-4">
                                     <label class="form-label">Org Unit (source)</label>
-                                    <div class="input-group">
-                                        <input class="form-control" id="trk-orgunit-name" placeholder="Pick organisation unit..." disabled />
-                                        <button class="btn btn-outline-secondary" type="button" onclick="TrackerUI.openOuPicker()">Pick…</button>
+                                    <div class="dropdown w-100">
+                                        <button class="btn btn-outline-secondary w-100 text-start dropdown-toggle" type="button" id="trk-ou-dd" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <span id="trk-ou-dd-label">Pick organisation unit…</span>
+                                        </button>
+                                        <div class="dropdown-menu p-2" aria-labelledby="trk-ou-dd" style="width: 420px; max-height: 60vh; overflow:auto;">
+                                            <div class="input-group input-group-sm mb-2">
+                                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                                <input type="text" class="form-control" id="trk-ou-q" placeholder="Search..." />
+                                                <button class="btn btn-outline-secondary" id="trk-ou-q-btn" type="button">Go</button>
+                                            </div>
+                                            <div id="trk-ou-tree" class="border rounded p-2 bg-light small" style="max-height: 45vh; overflow:auto;"></div>
+                                            <div id="trk-ou-results" class="mt-2"></div>
+                                        </div>
                                     </div>
                                     <input type="hidden" id="trk-orgunit" />
                                     <div class="form-text">Select a parent org unit; descendants will be included</div>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Start Date</label>
-                                    <input type="date" class="form-control" id="trk-start" />
+                                    <div class="dropdown w-100">
+                                        <button class="btn btn-outline-secondary w-100 text-start" id="trk-start-dd" data-bs-toggle="dropdown"><span id="trk-start-label">Select date…</span></button>
+                                        <div class="dropdown-menu p-2" aria-labelledby="trk-start-dd">
+                                            <input type="date" class="form-control" id="trk-start-picker" />
+                                            <div class="d-flex gap-2 mt-2">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="TrackerUI.setPresetDate('start','today')">Today</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="TrackerUI.setPresetDate('start','yesterday')">Yesterday</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="TrackerUI.setPresetDate('start','monthStart')">Month start</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <input type="hidden" id="trk-start" />
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">End Date</label>
-                                    <input type="date" class="form-control" id="trk-end" />
+                                    <div class="dropdown w-100">
+                                        <button class="btn btn-outline-secondary w-100 text-start" id="trk-end-dd" data-bs-toggle="dropdown"><span id="trk-end-label">Select date…</span></button>
+                                        <div class="dropdown-menu p-2" aria-labelledby="trk-end-dd">
+                                            <input type="date" class="form-control" id="trk-end-picker" />
+                                            <div class="d-flex gap-2 mt-2">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="TrackerUI.setPresetDate('end','today')">Today</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="TrackerUI.setPresetDate('end','yesterday')">Yesterday</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="TrackerUI.setPresetDate('end','monthEnd')">Month end</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <input type="hidden" id="trk-end" />
                                 </div>
                             </div>
                             <div class="mt-3 d-flex gap-2">
@@ -1276,97 +1308,29 @@ document.addEventListener('DOMContentLoaded', () => {
   TrackerUI.loadPrograms();
 });
 
-// --- Tracker Org Unit Picker (hierarchical, matches completeness style) ---
-// Modal markup
-(() => {
-  const existing = document.getElementById('trkOuModal');
-  if (!existing) {
-    const modal = document.createElement('div');
-    modal.className = 'modal fade';
-    modal.id = 'trkOuModal';
-    modal.tabIndex = -1;
-    modal.innerHTML = `
-    <div class="modal-dialog modal-lg">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-diagram-3 me-2"></i>Select Organisation Unit</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="row g-2 mb-2">
-            <div class="col-md-8">
-              <div class="input-group">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input type="text" class="form-control" id="trk-ou-search" placeholder="Search organisation units..." />
-                <button class="btn btn-outline-secondary" type="button" id="trk-ou-search-btn">Search</button>
-              </div>
-            </div>
-            <div class="col-md-4 text-end">
-              <span class="small text-muted" id="trk-ou-selected-label"></span>
-            </div>
-          </div>
-          <div class="row g-3">
-            <div class="col-12">
-              <div id="trk-ou-tree" class="border rounded p-2" style="max-height: 50vh; overflow:auto;"></div>
-              <div id="trk-ou-results" class="mt-2"></div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="button" class="btn btn-primary" id="trk-ou-confirm">Use Selected</button>
-        </div>
-      </div>
-    </div>`;
-    document.body.appendChild(modal);
-  }
-})();
-
-// Picker state and helpers
+// --- Tracker Org Unit Dropdown Tree ---
 TrackerUI._ouState = { selected: null };
-
-TrackerUI.openOuPicker = async function() {
-  const modalEl = document.getElementById('trkOuModal');
+TrackerUI.initOuDropdown = async function() {
   const tree = document.getElementById('trk-ou-tree');
   const results = document.getElementById('trk-ou-results');
-  const searchBtn = document.getElementById('trk-ou-search-btn');
-  const searchInput = document.getElementById('trk-ou-search');
-  const label = document.getElementById('trk-ou-selected-label');
-  const confirmBtn = document.getElementById('trk-ou-confirm');
+  const qBtn = document.getElementById('trk-ou-q-btn');
+  const qInput = document.getElementById('trk-ou-q');
   tree.innerHTML = '<div class="text-muted small">Loading roots...</div>';
   results.innerHTML = '';
-  label.textContent = '';
   TrackerUI._ouState.selected = null;
-
-  // Load root nodes
   const roots = await fetch('/api/organisation-units?instance=source').then(r => r.ok ? r.json() : []);
   tree.innerHTML = '';
-  const ul = document.createElement('ul'); ul.className = 'list-unstyled';
-  tree.appendChild(ul);
+  const ul = document.createElement('ul'); ul.className = 'list-unstyled'; tree.appendChild(ul);
   (Array.isArray(roots) ? roots : []).forEach(node => ul.appendChild(renderNode(node)));
-
-  // Wire search
   const doSearch = async () => {
-    const q = (searchInput.value || '').trim();
+    const q = (qInput.value || '').trim();
     if (q.length < 2) { results.innerHTML = '<div class="small text-muted">Type at least 2 characters to search</div>'; return; }
     results.innerHTML = '<div class="small text-muted">Searching...</div>';
     const list = await fetch(`/api/organisation-units/search?q=${encodeURIComponent(q)}&instance=source`).then(r => r.ok ? r.json() : []);
-    results.innerHTML = list.length ? list.map(ou => `<div><button class="btn btn-sm btn-outline-primary" onclick="TrackerUI._pickOu('${ou.id}', '${(ou.displayName||ou.name||ou.id).replace(/'/g, "\'")}')">Select</button> <span class="small">${ou.displayName||ou.name||ou.id}</span></div>`).join('') : '<div class="small text-muted">No results</div>';
+    results.innerHTML = list.length ? list.map(ou => `<div><button class=\"btn btn-sm btn-outline-primary\" onclick=\"TrackerUI._chooseOu('${ou.id}','${(ou.displayName||ou.name||ou.id).replace(/'/g, "\\'")}')\">Select</button> <span class=\"small\">${ou.displayName||ou.name||ou.id}</span></div>`).join('') : '<div class="small text-muted">No results</div>';
   };
-  searchBtn.onclick = doSearch;
-  searchInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } };
-
-  confirmBtn.onclick = () => {
-    const sel = TrackerUI._ouState.selected;
-    if (!sel) return;
-    document.getElementById('trk-orgunit').value = sel.id;
-    document.getElementById('trk-orgunit-name').value = sel.name;
-    const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
-    bsModal.hide();
-  };
-
-  const bsModal = new bootstrap.Modal(modalEl);
-  bsModal.show();
+  qBtn.onclick = doSearch;
+  qInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } };
 
   function renderNode(node) {
     const li = document.createElement('li');
@@ -1380,7 +1344,7 @@ TrackerUI.openOuPicker = async function() {
       </div>
     `;
     const radio = li.querySelector('input[type="radio"]');
-    radio.onclick = () => { TrackerUI._ouState.selected = { id: node.id, name }; label.textContent = `Selected: ${name}`; };
+    radio.onclick = () => { TrackerUI._ouState.selected = { id: node.id, name }; };
     if (hasChildren) {
       const expander = li.querySelector('[data-role="expander"]');
       const childContainer = document.createElement('ul'); childContainer.className = 'list-unstyled ms-4';
@@ -1388,21 +1352,51 @@ TrackerUI.openOuPicker = async function() {
       let expanded = false;
       expander.onclick = async () => {
         if (!expanded) {
-          expander.disabled = true;
-          expander.innerHTML = '<i class="bi bi-caret-down"></i>';
+          expander.disabled = true; expander.innerHTML = '<i class="bi bi-caret-down"></i>';
           const children = await fetch(`/api/organisation-units?parent=${encodeURIComponent(node.id)}&instance=source`).then(r => r.ok ? r.json() : []);
           (Array.isArray(children) ? children : []).forEach(c => childContainer.appendChild(renderNode(c)));
           expanded = true; expander.disabled = false;
-        } else {
-          childContainer.innerHTML = '';
-          expander.innerHTML = '<i class="bi bi-caret-right"></i>';
-          expanded = false;
-        }
+        } else { childContainer.innerHTML = ''; expander.innerHTML = '<i class="bi bi-caret-right"></i>'; expanded = false; }
       };
     }
     return li;
   }
 };
+TrackerUI._chooseOu = function(id, name) {
+  document.getElementById('trk-orgunit').value = id;
+  document.getElementById('trk-ou-dd-label').textContent = name;
+  const dd = document.getElementById('trk-ou-dd');
+  bootstrap.Dropdown.getOrCreateInstance(dd).hide();
+}
+document.getElementById('trk-ou-dd').addEventListener('show.bs.dropdown', () => {
+  // Lazy initialize tree each open
+  TrackerUI.initOuDropdown();
+});
+
+// --- Date dropdown helpers ---
+TrackerUI._formatDate = (d) => d.toISOString().slice(0,10);
+TrackerUI._setDate = function(which, dateStr) {
+  const hiddenId = which === 'start' ? 'trk-start' : 'trk-end';
+  const labelId = which === 'start' ? 'trk-start-label' : 'trk-end-label';
+  document.getElementById(hiddenId).value = dateStr;
+  document.getElementById(labelId).textContent = dateStr;
+};
+TrackerUI.setPresetDate = function(which, preset) {
+  const now = new Date();
+  let d = new Date(now);
+  if (preset === 'today') d = now;
+  if (preset === 'yesterday') d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (preset === 'monthStart') d = new Date(now.getFullYear(), now.getMonth(), 1);
+  if (preset === 'monthEnd') d = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  TrackerUI._setDate(which, TrackerUI._formatDate(d));
+};
+['trk-start-picker','trk-end-picker'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => {
+    const which = id.includes('start') ? 'start' : 'end';
+    if (el.value) TrackerUI._setDate(which, el.value);
+  });
+});
 async function startMetadataAssessment() {
     const scope = Array.from(document.querySelectorAll('#metadata-scope-form input[type="checkbox"]:checked')).map(cb => cb.value)
     const progressDiv = document.getElementById('metadata-progress')
