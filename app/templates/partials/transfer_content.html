@@ -1335,7 +1335,7 @@ TrackerUI.initOuDropdown = async function() {
   function renderNode(node) {
     const li = document.createElement('li');
     const name = node.displayName || node.name || node.id;
-    const hasChildren = !!node.hasChildren;
+    const hasChildren = (node.hasChildren === true) || (node.leaf === false) || (Array.isArray(node.children) && node.children.length > 0);
     li.innerHTML = `
       <div class="d-flex align-items-center gap-2">
         ${hasChildren ? '<button class="btn btn-sm btn-outline-secondary" data-role="expander"><i class="bi bi-caret-right"></i></button>' : '<span class="ms-4"></span>'}
@@ -1366,7 +1366,13 @@ TrackerUI.initOuDropdown = async function() {
         if (!expanded) {
           expander.disabled = true; expander.innerHTML = '<i class="bi bi-caret-down"></i>';
           const children = await fetch(`/api/organisation-units?parent=${encodeURIComponent(node.id)}&instance=source`).then(r => r.ok ? r.json() : []);
-          (Array.isArray(children) ? children : []).forEach(c => childContainer.appendChild(renderNode(c)));
+          const list = Array.isArray(children) ? children : [];
+          if (list.length === 0) {
+            childContainer.innerHTML = '';
+            expander.replaceWith(document.createElement('span'));
+          } else {
+            list.forEach(c => childContainer.appendChild(renderNode(c)));
+          }
           expanded = true; expander.disabled = false;
         } else { childContainer.innerHTML = ''; expander.innerHTML = '<i class="bi bi-caret-right"></i>'; expanded = false; }
       };
