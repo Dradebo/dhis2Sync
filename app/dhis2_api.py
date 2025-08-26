@@ -12,26 +12,21 @@ class Api:
         self.name_cache: Dict[str, str] = {}  # Cache for org unit names
 
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
-        """GET request with timeout and simple retry on transient errors."""
+        """GET request to DHIS2 API with minimal, safe logging."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        max_attempts = 3
-        backoff = 0.5
-        for attempt in range(1, max_attempts + 1):
-            try:
-                resp = requests.get(url, params=params, auth=self.auth, timeout=10)
-                if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
-                    time.sleep(backoff)
-                    backoff *= 2
-                    continue
-                return resp
-            except requests.exceptions.RequestException:
-                if attempt == max_attempts:
-                    raise
-                time.sleep(backoff)
-                backoff *= 2
+        try:
+            response = requests.get(url, params=params, auth=self.auth, timeout=10)
+            return response
+        except requests.exceptions.RequestException as e:
+            class MockResponse:
+                status_code = 500
+                text = str(e)
+                def json(self):
+                    return {"error": str(e)}
+            return MockResponse()
 
     def post(self, endpoint: str, json_payload: Dict[str, Any]) -> requests.Response:
-        """POST with timeout and simple retry on transient errors."""
+        """POST request to DHIS2 API with timeout and simple retry on transient errors."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         headers = {"Content-Type": "application/json"}
         max_attempts = 3
@@ -44,25 +39,109 @@ class Api:
                     backoff *= 2
                     continue
                 return resp
-            except requests.exceptions.RequestException:
-                if attempt == max_attempts:
-                    raise
+            except requests.exceptions.RequestException as _e:
+                if attempt >= max_attempts:
+                    class MockResponse:
+                        status_code = 500
+                        text = str(_e)
+                        def json(self):
+                            return {"error": str(_e)}
+                    return MockResponse()
+                time.sleep(backoff)
+                backoff *= 2
+
+    def delete(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
+        """DELETE request to DHIS2 API with timeout and simple retry on transient errors."""
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        max_attempts = 3
+        backoff = 0.5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = requests.delete(url, params=params, auth=self.auth, timeout=10)
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return resp
+            except requests.exceptions.RequestException as _e:
+                if attempt >= max_attempts:
+                    class MockResponse:
+                        status_code = 500
+                        text = str(_e)
+                        def json(self):
+                            return {"error": str(_e)}
+                    return MockResponse()
                 time.sleep(backoff)
                 backoff *= 2
 
     def get_org_unit_name(self, org_unit_id: str) -> str:
-        """Get cached organization unit name with fallback to ID"""
+        """Get cached organisation unit name via standard endpoint with graceful fallback."""
         if org_unit_id not in self.name_cache:
             try:
-                response = self.get(f"api/organisationUnits/{org_unit_id}.json", params={"fields": "id,displayName,name"})
+                response = self.get(f'api/organisationUnits/{org_unit_id}.json', params={"fields": "id,name,displayName"})
                 if response.status_code == 200:
                     data = response.json() or {}
-                    self.name_cache[org_unit_id] = data.get("displayName") or data.get("name") or org_unit_id
+                    self.name_cache[org_unit_id] = data.get('displayName') or data.get('name') or org_unit_id
                 else:
                     self.name_cache[org_unit_id] = org_unit_id
             except Exception:
                 self.name_cache[org_unit_id] = org_unit_id
         return self.name_cache[org_unit_id]
+
+    # ---- Tracker/Events helpers (Phase 1: events without registration) ----
+    def list_programs(self) -> requests.Response:
+        """List programs with minimal fields (programType, stages)."""
+        return self.get(
+            "api/programs",
+            params={
+                "fields": "id,displayName,programType,version,programStages[id,displayName]",
+                "paging": "false",
+            },
+        )
+
+    def program_detail(self, program_id: str) -> requests.Response:
+        """Get detailed program including stages and data elements."""
+        return self.get(
+            f"api/programs/{program_id}",
+            params={
+                "fields": (
+                    "id,displayName,programType,version,"
+                    "programStages[id,displayName,programStageDataElements[dataElement[id,displayName,code,valueType,optionSet[id,displayName,options[code,name]]]]]"
+                )
+            },
+        )
+
+    def list_events(
+        self,
+        program_id: str,
+        org_unit: str,
+        start_date: str,
+        end_date: str,
+        program_stage: Optional[str] = None,
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 200,
+    ) -> requests.Response:
+        """List events for a program within date range under an org unit (descendants)."""
+        params: Dict[str, Any] = {
+            "program": program_id,
+            "orgUnit": org_unit,
+            "ouMode": "DESCENDANTS",
+            "startDate": start_date,
+            "endDate": end_date,
+            "page": page,
+            "pageSize": page_size,
+            "totalPages": "true",
+        }
+        if program_stage:
+            params["programStage"] = program_stage
+        if status:
+            params["status"] = status
+        return self.get("api/events", params=params)
+
+    def post_events_batch(self, events_payload: Dict[str, Any]) -> requests.Response:
+        """Post events with basic retry; payload: { events: [...] }."""
+        return self.post("api/events", json_payload=events_payload)
 
 def build_completion_payload(json_data: Dict[str, Any], parent_ou: str, api: Api, period: str, dataset_id: str, include_parent: bool = False):
     """

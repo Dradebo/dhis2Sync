@@ -13,6 +13,9 @@
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="subtab-metadata" data-bs-toggle="tab" data-bs-target="#subtab-pane-metadata" type="button" role="tab" aria-controls="subtab-pane-metadata" aria-selected="false">Metadata</button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="subtab-tracker" data-bs-toggle="tab" data-bs-target="#subtab-pane-tracker" type="button" role="tab" aria-controls="subtab-pane-tracker" aria-selected="false">Tracker/Events</button>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -230,6 +233,54 @@
                                 </button>
                             </div>
                         </div>
+                    </div>
+                    <div class="tab-pane fade" id="subtab-pane-tracker" role="tabpanel" aria-labelledby="subtab-tracker">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle me-2"></i>
+                            Event-only programs supported in Phase 1. Select a program and date range to preview and transfer events.
+                        </div>
+                        <form id="tracker-form" class="mb-3">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Program (source)</label>
+                                    <select class="form-select" id="trk-program"></select>
+                                    <div class="form-text">Event-only programs recommended. List loads from source.</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Program Stage (optional)</label>
+                                    <select class="form-select" id="trk-stage">
+                                        <option value="">Any stage</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row g-3 mt-1">
+                                <div class="col-md-4">
+                                    <label class="form-label">Org Unit (source)</label>
+                                    <input class="form-control" id="trk-orgunit" placeholder="Parent OU ID" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Start Date</label>
+                                    <input type="date" class="form-control" id="trk-start" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">End Date</label>
+                                    <input type="date" class="form-control" id="trk-end" />
+                                </div>
+                            </div>
+                            <div class="mt-3 d-flex gap-2">
+                                <button type="button" class="btn btn-outline-primary" onclick="TrackerUI.preview()">
+                                    <i class="bi bi-search me-1"></i>Preview
+                                </button>
+                                <button type="button" class="btn btn-success" onclick="TrackerUI.transfer(false)">
+                                    <i class="bi bi-play me-1"></i>Transfer
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="TrackerUI.transfer(true)">
+                                    <i class="bi bi-play-circle me-1"></i>Dry Run
+                                </button>
+                            </div>
+                        </form>
+                        <div id="trk-preview" class="mb-3"></div>
+                        <div id="trk-progress" class="mb-3"></div>
                     </div>
                 </div>
             </div>
@@ -1137,6 +1188,78 @@ window.pollSyncProgress = async function(taskId) {
 }
 </script>
 <script>
+// --- Tracker/Events minimal UI ---
+const TrackerUI = {
+  async loadPrograms() {
+    try {
+      const r = await fetch('/tracker/programs?instance=source&include_all=true');
+      if (!r.ok) return;
+      const body = await r.json();
+      const sel = document.getElementById('trk-program');
+      sel.innerHTML = '<option value="">Select program...</option>';
+      (body.programs || []).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = `${p.displayName || p.id} (${p.programType || ''})`;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', async () => {
+        const pid = sel.value; const stageSel = document.getElementById('trk-stage');
+        stageSel.innerHTML = '<option value="">Any stage</option>';
+        if (!pid) return;
+        const d = await fetch(`/tracker/program/${pid}?instance=source`).then(x => x.ok ? x.json() : null);
+        if (!d) return;
+        (d.programStages || []).forEach(s => {
+          const opt = document.createElement('option'); opt.value = s.id; opt.textContent = s.displayName || s.id; stageSel.appendChild(opt);
+        })
+      });
+    } catch {}
+  },
+  async preview() {
+    const pid = document.getElementById('trk-program').value;
+    const stage = document.getElementById('trk-stage').value;
+    const ou = document.getElementById('trk-orgunit').value.trim();
+    const start = document.getElementById('trk-start').value;
+    const end = document.getElementById('trk-end').value;
+    if (!pid || !ou || !start || !end) { alert('Program, Org Unit, Start and End dates are required'); return; }
+    const r = await fetch('/tracker/preview-events', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ program_id: pid, org_unit: ou, start_date: start, end_date: end, program_stage: stage || null }) });
+    const out = document.getElementById('trk-preview');
+    if (!r.ok) { out.innerHTML = '<div class="alert alert-danger">Preview failed</div>'; return; }
+    const body = await r.json();
+    out.innerHTML = `<div class="card"><div class="card-header"><strong>Preview</strong></div><div class="card-body"><div class="mb-2">Estimated events: <span class="badge bg-info">${body.estimate_total}</span></div><pre class="small bg-light p-2" style="max-height: 220px; overflow:auto;">${JSON.stringify(body.sample||[], null, 2)}</pre></div></div>`;
+  },
+  async transfer(dryRun) {
+    const pid = document.getElementById('trk-program').value;
+    const stage = document.getElementById('trk-stage').value;
+    const ou = document.getElementById('trk-orgunit').value.trim();
+    const start = document.getElementById('trk-start').value;
+    const end = document.getElementById('trk-end').value;
+    if (!pid || !ou || !start || !end) { alert('Program, Org Unit, Start and End dates are required'); return; }
+    const r = await fetch('/tracker/transfer-bg', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ source_instance: 'source', dest_instance: 'dest', program_id: pid, org_unit: ou, start_date: start, end_date: end, program_stage: stage || null, dry_run: !!dryRun }) });
+    const body = await r.json().catch(()=>({}));
+    if (!r.ok || !body.task_id) { alert('Failed to start transfer'); return; }
+    TrackerUI.poll(body.task_id);
+  },
+  async poll(taskId) {
+    const container = document.getElementById('trk-progress');
+    container.innerHTML = `<div class="card"><div class="card-header"><strong>Tracker Transfer</strong></div><div class="card-body"><div class="progress mb-2"><div class="progress-bar" id="trk-bar" role="progressbar" style="width:0%">0%</div></div><div id="trk-log" class="small text-muted" style="max-height: 240px; overflow:auto;"></div></div></div>`;
+    const bar = document.getElementById('trk-bar');
+    const log = document.getElementById('trk-log');
+    const timer = setInterval(async () => {
+      const r = await fetch(`/tracker/progress/${taskId}`);
+      if (!r.ok) { clearInterval(timer); return; }
+      const p = await r.json();
+      const pct = p.progress || 0; bar.style.width = pct + '%'; bar.textContent = pct + '%';
+      const msgs = (p.messages || []).slice(-30).map(m => `<div>${m}</div>`).join('');
+      log.innerHTML = msgs; log.scrollTop = log.scrollHeight;
+      if (p.status === 'completed' || p.status === 'error') clearInterval(timer);
+    }, 1000);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Initialize tracker tab lists
+  TrackerUI.loadPrograms();
+});
 async function startMetadataAssessment() {
     const scope = Array.from(document.querySelectorAll('#metadata-scope-form input[type="checkbox"]:checked')).map(cb => cb.value)
     const progressDiv = document.getElementById('metadata-progress')

@@ -17,10 +17,12 @@ from .models import ConnectionForm, DatasetSelection, ElementMapping
 from .routes.completeness import router as completeness_router
 from .routes.metadata import router as metadata_router
 from .routes.settings_profiles import router as settings_profiles_router
+from .db import engine
 from .routes.schedules import router as schedules_router
 from .scheduler import start_scheduler_and_load_jobs
-from .db import engine
 from .models_db import Base
+from .conn_utils import resolve_connections
+from .routes.tracker import router as tracker_router
 
 
 class WebSocketBlockerMiddleware(BaseHTTPMiddleware):
@@ -63,14 +65,17 @@ app.add_middleware(
 )
 
 # Add CORS middleware for DHIS2 app integration
-# CORS allowlist from env (comma-separated)
-_cors = os.environ.get("CORS_ALLOW_ORIGINS")
-_origins = [o.strip() for o in _cors.split(",") if o.strip()] if _cors else [
-    "http://localhost:3000",
-]
+def _parse_cors():
+    raw = os.environ.get("CORS_ALLOW_ORIGINS")
+    if not raw:
+        return [
+            "http://localhost:3000",
+        ]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
+    allow_origins=_parse_cors(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,7 +102,7 @@ templates = Jinja2Templates(directory="app/templates")
 @app.get("/api/user-orgunits")
 async def api_user_orgunits(request: Request, instance: str = "source"):
     try:
-        connections = request.session.get("connections")
+        connections = resolve_connections(request)
         if not connections or instance not in connections:
             raise HTTPException(400, f"No connection configured for {instance}")
 
@@ -130,15 +135,13 @@ app.include_router(completeness_router)
 app.include_router(metadata_router)
 app.include_router(settings_profiles_router)
 app.include_router(schedules_router)
+app.include_router(tracker_router)
 
-# Create tables if not present and start scheduler
+# Create tables if not present (for simple bootstrap; avoid in production)
 try:
-    Base.metadata.create_all(bind=engine)
+    if _env != "production":
+        Base.metadata.create_all(bind=engine)
 except Exception as _e:
-    pass
-try:
-    start_scheduler_and_load_jobs()
-except Exception:
     pass
 
 @app.get("/healthz")
@@ -154,6 +157,14 @@ async def ready():
     except Exception as e:
         from fastapi import Response
         return Response(content="{\"ready\": false}", media_type="application/json", status_code=503)
+
+# Scheduler startup (guard with env var)
+import os
+if os.environ.get("ENABLE_SCHEDULER") == "1":
+    try:
+        start_scheduler_and_load_jobs()
+    except Exception:
+        pass
 
 # Global storage for background tasks progress
 task_progress: Dict[str, Dict[str, Any]] = {}
@@ -383,7 +394,7 @@ async def get_job_history():
 async def get_datasets(request: Request, instance: str = "source"):
     """Fetch datasets from specified DHIS2 instance"""
     try:
-        connections = request.session.get("connections")
+        connections = resolve_connections(request)
         if not connections or instance not in connections:
             raise HTTPException(400, f"No connection configured for {instance}")
         
@@ -423,7 +434,7 @@ async def match_datasets(request: Request):
         data = await request.json()
         source_dataset_id = data.get("source_dataset_id")
         
-        connections = request.session.get("connections")
+        connections = resolve_connections(request)
         if not connections:
             raise HTTPException(400, "No connections configured")
         
@@ -527,7 +538,7 @@ async def get_dataset_info(request: Request):
             for dse in (dataset_info.get("dataSetElements", []) or [])
             if dse.get("dataElement")
         ]
-
+        
         return JSONResponse({
             "dataset_id": dataset_id,
             "dataset_name": dataset_info.get("displayName", "Unknown"),
@@ -787,7 +798,7 @@ async def connect_dhis2(
 @app.get("/datasets")
 async def load_datasets(request: Request):
     """Load datasets from both instances"""
-    connections = request.session.get("connections")
+    connections = resolve_connections(request)
     if not connections:
         raise HTTPException(400, "No connections found")
     
@@ -831,7 +842,7 @@ async def select_datasets(
 ):
     """Select datasets and move to mapping step"""
     try:
-        connections = request.session.get("connections")
+        connections = resolve_connections(request)
         source_api = Api(**connections["source"])
         dest_api = Api(**connections["dest"])
         
@@ -1747,10 +1758,10 @@ async def get_organisation_units(request: Request, parent: str = None, instance:
     connections = request.session.get("connections")
     if not connections or instance not in connections:
         raise HTTPException(400, f"No connection found for {instance}")
-
+    
     try:
         api = Api(**connections[instance])
-
+        
         # Children of a specific parent
         if parent:
             response = api.get(f"api/organisationUnits/{parent}.json", params={
@@ -1820,9 +1831,9 @@ async def get_organisation_units(request: Request, parent: str = None, instance:
             ou["hasChildren"] = True if not parent else inferred_has_children
             ou["expanded"] = False
             ou["selected"] = False
-
+        
         return org_units
-
+        
     except HTTPException:
         raise
     except Exception as e:
