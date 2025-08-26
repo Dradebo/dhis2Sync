@@ -1236,7 +1236,7 @@ const TrackerUI = {
     const start = document.getElementById('trk-start').value;
     const end = document.getElementById('trk-end').value;
     if (!pid || !ou || !start || !end) { alert('Program, Org Unit, Start and End dates are required'); return; }
-    const r = await fetch('/tracker/preview-events', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ program_id: pid, org_unit: ou, start_date: start, end_date: end, program_stage: stage || null }) });
+    const r = await fetch('/tracker/preview-events', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ program_id: pid, org_units: ou ? [ou] : [], start_date: start, end_date: end, program_stage: stage || null }) });
     const out = document.getElementById('trk-preview');
     if (!r.ok) { out.innerHTML = '<div class="alert alert-danger">Preview failed</div>'; return; }
     const body = await r.json();

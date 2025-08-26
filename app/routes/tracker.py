@@ -107,13 +107,19 @@ async def preview_events(request: Request):
     instance = data.get("instance") or "source"
     program_id = data.get("program_id")
     org_unit = data.get("org_unit")
+    org_units = data.get("org_units") or []
     start_date = data.get("start_date")
     end_date = data.get("end_date")
     program_stage = data.get("program_stage")
     status = data.get("status")
 
-    if not all([program_id, org_unit, start_date, end_date]):
-        raise HTTPException(400, "program_id, org_unit, start_date, end_date are required")
+    if not program_id or not start_date or not end_date:
+        raise HTTPException(400, "program_id, start_date, end_date are required")
+    # Allow multi-select org units; fallback to single
+    if not org_units:
+        if not org_unit:
+            raise HTTPException(400, "org_unit or org_units[] required")
+        org_units = [org_unit]
 
     connections = resolve_connections(request)
     if not connections or instance not in connections:
@@ -123,41 +129,42 @@ async def preview_events(request: Request):
 
     # Page through events with a soft cap for preview
     preview_cap = int(data.get("preview_cap", 1000))
-    page = 1
     page_size = min(int(data.get("page_size", 200)), 500)
     total_collected = 0
     sample: List[dict] = []
 
-    while total_collected < preview_cap:
-        resp = api.list_events(
-            program_id=program_id,
-            org_unit=org_unit,
-            start_date=start_date,
-            end_date=end_date,
-            program_stage=program_stage,
-            status=status,
-            page=page,
-            page_size=page_size,
-        )
-        if resp.status_code != 200:
-            break
-        payload = resp.json() or {}
-        events = payload.get("events", [])
-        if not events:
-            break
-        total_collected += len(events)
-        if len(sample) < 5:
-            sample.extend(events[: max(0, 5 - len(sample))])
+    for ou in org_units:
+        page = 1
+        while total_collected < preview_cap:
+            resp = api.list_events(
+                program_id=program_id,
+                org_unit=ou,
+                start_date=start_date,
+                end_date=end_date,
+                program_stage=program_stage,
+                status=status,
+                page=page,
+                page_size=page_size,
+            )
+            if resp.status_code != 200:
+                break
+            payload = resp.json() or {}
+            events = payload.get("events", [])
+            if not events:
+                break
+            total_collected += len(events)
+            if len(sample) < 5:
+                sample.extend(events[: max(0, 5 - len(sample))])
 
-        pager = payload.get("pager") or {}
-        page_count = int(pager.get("pageCount") or 1)
-        if page >= page_count:
-            break
-        page += 1
+            pager = payload.get("pager") or {}
+            page_count = int(pager.get("pageCount") or 1)
+            if page >= page_count:
+                break
+            page += 1
 
     return {
         "program_id": program_id,
-        "org_unit": org_unit,
+        "org_units": org_units,
         "start_date": start_date,
         "end_date": end_date,
         "estimate_total": total_collected,
