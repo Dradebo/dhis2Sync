@@ -2,22 +2,73 @@ from fastapi import APIRouter, Request, Form, BackgroundTasks, HTTPException
 from fastapi.templating import Jinja2Templates
 from typing import List, Optional
 import json
+import time
 
 from ..dhis2_api import Api, complete_datasets, assess_data_element_compliance
+from ..conn_utils import resolve_connections
 from ..models import CompletenessConfig, CompletenessResult
+from ..db import SessionLocal
+from ..models_db import TaskProgress
 
 router = APIRouter(prefix="/completeness", tags=["completeness"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Global storage for completeness tasks
+# Global storage for completeness tasks (kept for in-memory speed)
 completeness_progress = {}
+
+def _save_progress(task_id: str, payload: dict, task_type: str):
+    """Persist task progress to DB (TaskProgress)."""
+    db = SessionLocal()
+    try:
+        row = db.query(TaskProgress).filter(TaskProgress.id == task_id).first()
+        messages = payload.get("messages")
+        results = payload.get("results")
+        if not row:
+            row = TaskProgress(
+                id=task_id,
+                task_type=task_type,
+                status=payload.get("status", "starting"),
+                progress=int(payload.get("progress", 0)),
+                messages=json.dumps(messages) if isinstance(messages, list) else None,
+                results=json.dumps(results) if results is not None else None,
+            )
+            db.add(row)
+        else:
+            row.status = payload.get("status", row.status)
+            if "progress" in payload:
+                row.progress = int(payload.get("progress", row.progress))
+            if messages is not None:
+                row.messages = json.dumps(messages)
+            if results is not None:
+                row.results = json.dumps(results)
+        db.commit()
+    finally:
+        db.close()
+
+def _load_progress(task_id: str) -> dict:
+    db = SessionLocal()
+    try:
+        row = db.query(TaskProgress).filter(TaskProgress.id == task_id).first()
+        if not row:
+            return None
+        out = {
+            "status": row.status,
+            "progress": row.progress,
+            "messages": json.loads(row.messages) if row.messages else [],
+        }
+        if row.results:
+            try:
+                out["results"] = json.loads(row.results)
+            except Exception:
+                out["results"] = None
+        return out
+    finally:
+        db.close()
 
 @router.get("/")
 async def completeness_dashboard(request: Request):
     """Completeness assessment dashboard"""
-    connections = request.session.get("connections")
-    if not connections:
-        raise HTTPException(400, "No DHIS2 connections found. Please connect first.")
+    connections = resolve_connections(request)
     
     return templates.TemplateResponse("completeness/dashboard.html", {
         "request": request,
@@ -67,8 +118,8 @@ async def assess_completeness(request: Request):
             except Exception:
                 raise HTTPException(400, "Failed to determine required elements; please select at least one")
         
-        connections = request.session.get("connections")
-        if not connections or instance not in connections:
+        connections = resolve_connections(request)
+        if instance not in connections:
             raise HTTPException(400, f"No connection found for {instance}")
         
         # Create API instance and run data element-based compliance assessment
@@ -145,8 +196,8 @@ async def assess_completeness_background(request: Request, background_tasks: Bac
         if not all([instance, dataset_id]) or not periods or not parent_org_units:
             raise HTTPException(400, "Missing required parameters for assessment")
 
-        connections = request.session.get("connections")
-        if not connections or instance not in connections:
+        connections = resolve_connections(request)
+        if instance not in connections:
             raise HTTPException(400, f"No connection found for {instance}")
 
         task_id = f"comp_{len(completeness_progress)}"
@@ -155,6 +206,7 @@ async def assess_completeness_background(request: Request, background_tasks: Bac
             "progress": 0,
             "messages": ["Starting completeness assessment..."],
         }
+        _save_progress(task_id, completeness_progress[task_id], task_type="completeness")
 
         # Default required elements to all in dataset if none selected
         if not required_elements:
@@ -216,6 +268,7 @@ def _run_compliance_multi_period(
             'compliance_details': {}
         }
 
+        start_ts = time.time()
         for i, period in enumerate(periods, start=1):
             progress["messages"].append(f"Assessing {period} ({i}/{len(periods)})...")
             period_results = assess_data_element_compliance(
@@ -252,16 +305,24 @@ def _run_compliance_multi_period(
 
             results['compliance_details'].update(period_results.get('compliance_details', {}))
             progress["progress"] = int(100 * i / total)
+            # Trim messages to avoid uncontrolled growth
+            if len(progress.get("messages", [])) > 500:
+                progress["messages"] = progress["messages"][-500:]
+            _save_progress(task_id, progress, task_type="completeness")
+            # Yield a little CPU to keep app responsive
+            time.sleep(0.01)
 
         progress["messages"].append("Assessment complete")
         progress["status"] = "completed"
         progress["results"] = results
         progress["progress"] = 100
+        _save_progress(task_id, progress, task_type="completeness")
     except Exception as e:
         p = completeness_progress.get(task_id, {})
         p["status"] = "error"
         p.setdefault("messages", []).append(f"Error: {str(e)}")
         completeness_progress[task_id] = p
+        _save_progress(task_id, p, task_type="completeness")
 
 
 @router.get("/export/{task_id}")
@@ -270,7 +331,11 @@ async def export_completeness_results(task_id: str, fmt: str = "json", limit: in
     fmt=json (default) or csv. Use limit>0 to truncate compliance_details entries for quick previews.
     """
     if task_id not in completeness_progress:
-        raise HTTPException(404, "Task not found")
+        # Fall back to DB if not in-memory
+        db_payload = _load_progress(task_id)
+        if db_payload is None:
+            raise HTTPException(404, "Task not found")
+        return db_payload
     task = completeness_progress[task_id]
     if task.get("status") != "completed" or not task.get("results"):
         raise HTTPException(400, "Assessment not completed or no results available")
@@ -307,7 +372,10 @@ async def export_completeness_results(task_id: str, fmt: str = "json", limit: in
 async def get_completeness_progress(task_id: str):
     """Get progress of completeness assessment"""
     if task_id not in completeness_progress:
-        raise HTTPException(404, "Task not found")
+        db_payload = _load_progress(task_id)
+        if db_payload is None:
+            raise HTTPException(404, "Task not found")
+        return db_payload
     
     return completeness_progress[task_id]
 
@@ -365,8 +433,8 @@ async def bulk_completeness_action(request: Request):
         periods = [p.strip() for p in periods_str.split(',') if p.strip()]
         
         # Get connection
-        connections = request.session.get("connections")
-        if not connections or instance not in connections:
+        connections = resolve_connections(request)
+        if instance not in connections:
             raise HTTPException(400, f"No connection found for {instance}")
         
         api = Api(**connections[instance])
@@ -394,11 +462,21 @@ async def bulk_completeness_action(request: Request):
                         }
                         response = api.post("api/completeDataSetRegistrations", payload)
                     else:
-                        # Mark as incomplete (delete completion)
-                        response = api.get(f"api/completeDataSetRegistrations/{dataset_id}/{period}/{org_unit_id}")
-                        if response.status_code == 200:
-                            # Delete the completion registration
-                            delete_response = api.post("api/completeDataSetRegistrations", {
+                        # Prefer DELETE semantics when available; fall back to POST completed:false
+                        # Try DELETE endpoint first
+                        delete_resp = api.delete(
+                            "api/completeDataSetRegistrations",
+                            params={
+                                "dataSet": dataset_id,
+                                "period": period,
+                                "orgUnit": org_unit_id,
+                            },
+                        )
+                        if delete_resp.status_code == 200:
+                            response = delete_resp
+                        else:
+                            # Fallback: POST with completed False
+                            response = api.post("api/completeDataSetRegistrations", {
                                 "completeDataSetRegistrations": [{
                                     "dataSet": dataset_id,
                                     "period": period,
@@ -406,7 +484,6 @@ async def bulk_completeness_action(request: Request):
                                     "completed": False
                                 }]
                             })
-                            response = delete_response
                     
                     if response.status_code == 200:
                         results["successful"].append(f"{org_unit_id}:{period}")
@@ -449,8 +526,8 @@ async def bulk_completeness_action_background(request: Request, background_tasks
         if not instance:
             raise HTTPException(400, "Instance is required")
 
-        connections = request.session.get("connections")
-        if not connections or instance not in connections:
+        connections = resolve_connections(request)
+        if instance not in connections:
             raise HTTPException(400, f"No connection found for {instance}")
 
         bulk_task_id = f"bulk_{len(completeness_progress)}"
@@ -460,6 +537,7 @@ async def bulk_completeness_action_background(request: Request, background_tasks
             "messages": [f"Starting bulk {action} for {len(org_units)} org units across {len(periods)} period(s) ..."],
             "results": {"successful": [], "failed": [], "total_processed": 0}
         }
+        _save_progress(bulk_task_id, completeness_progress[bulk_task_id], task_type="bulk_completeness")
 
         background_tasks.add_task(
             _run_bulk_action,
@@ -609,6 +687,7 @@ def _run_bulk_action(
                 finally:
                     processed += 1
                     progress["progress"] = int(processed * 100 / total_steps)
+                    _save_progress(task_id, progress, task_type="bulk_completeness")
 
         progress["status"] = "completed"
         progress["results"] = {
@@ -620,8 +699,10 @@ def _run_bulk_action(
         progress["messages"].append(
             f"Completed bulk {action}. Success: {len(successful)}, Failed: {len(failed)}"
         )
+        _save_progress(task_id, progress, task_type="bulk_completeness")
     except Exception as e:
         p = completeness_progress.get(task_id, {})
         p["status"] = "error"
         p.setdefault("messages", []).append(f"Error: {str(e)}")
         completeness_progress[task_id] = p
+        _save_progress(task_id, p, task_type="bulk_completeness")

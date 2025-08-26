@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Dict, Any, Optional, List
 import json
+import time
 
 from ..dhis2_api import Api
 from ..conn_utils import resolve_connections
@@ -189,6 +190,10 @@ async def transfer_events_background(request: Request, background_tasks: Backgro
     program_stage = data.get("program_stage")
     status = data.get("status")
     dry_run = bool(data.get("dry_run", False))
+    # Resilience knobs
+    batch_size = int(data.get("batch_size", 200))
+    max_pages = int(data.get("max_pages", 500))
+    max_runtime_seconds = int(data.get("max_runtime_seconds", 60 * 25))  # default 25 minutes
 
     if not program_id or not start_date or not end_date:
         raise HTTPException(400, "program_id, start_date, end_date are required")
@@ -221,6 +226,9 @@ async def transfer_events_background(request: Request, background_tasks: Backgro
         program_stage,
         status,
         dry_run,
+        batch_size,
+        max_pages,
+        max_runtime_seconds,
     )
 
     return {"task_id": task_id, "status": "started"}
@@ -268,6 +276,9 @@ def _run_event_transfer(
     program_stage: Optional[str],
     status: Optional[str],
     dry_run: bool,
+    batch_size: int,
+    max_pages: int,
+    max_runtime_seconds: int,
 ):
     try:
         progress = tracker_progress[task_id]
@@ -277,16 +288,32 @@ def _run_event_transfer(
         src = Api(**source_conn)
         dst = Api(**dest_conn)
 
-        page_size = 200
+        page_size = max(50, min(batch_size, 500))
         total_fetched = 0
         total_sent = 0
         batches_sent = 0
-        max_pages = 500  # hard safety cap
+        start_ts = time.time()
 
         for idx, org_unit in enumerate(org_units, start=1):
-            progress["messages"].append(f"Processing OU {idx}/{len(org_units)}: {org_unit}")
+            progress.setdefault("messages", []).append(f"Processing OU {idx}/{len(org_units)}: {org_unit}")
+            if len(progress["messages"]) > 500:
+                progress["messages"] = progress["messages"][-500:]
+            _save_progress(task_id, progress)
             page = 1
             while page <= max_pages:
+                # Respect max runtime to avoid worker starvation
+                if time.time() - start_ts > max_runtime_seconds:
+                    progress["messages"].append("Max runtime reached; finishing early with partial results")
+                    progress["status"] = "completed"
+                    progress["result"] = {
+                        "total_fetched": total_fetched,
+                        "total_sent": total_sent,
+                        "batches_sent": batches_sent,
+                        "dry_run": dry_run,
+                        "partial": True,
+                    }
+                    _save_progress(task_id, progress)
+                    return
                 resp = src.list_events(
                     program_id=program_id,
                     org_unit=org_unit,
@@ -310,7 +337,7 @@ def _run_event_transfer(
                 if dry_run:
                     progress["messages"].append(f"Dry-run: would send {len(transformed)} events (OU {org_unit}, page {page})")
                 else:
-                    chunk = 200
+                    chunk = batch_size
                     for i in range(0, len(transformed), chunk):
                         batch = transformed[i : i + chunk]
                         resp2 = dst.post_events_batch({"events": batch})
@@ -327,7 +354,12 @@ def _run_event_transfer(
 
                 # Update progress
                 progress["progress"] = min(95, progress.get("progress", 0) + 2)
+                # Trim messages to avoid memory growth
+                if len(progress.get("messages", [])) > 500:
+                    progress["messages"] = progress["messages"][-500:]
                 _save_progress(task_id, progress)
+                # Yield a little to avoid starving loop
+                time.sleep(0.01)
 
                 pager = payload.get("pager") or {}
                 page_count = int(pager.get("pageCount") or 1)
