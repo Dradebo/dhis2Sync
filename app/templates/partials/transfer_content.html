@@ -424,6 +424,9 @@ function populateSourceDatasets() {
         loadBtn.disabled = !this.value;
         if (!this.value) {
             resetToStep1();
+        } else {
+            // Auto-load dataset info on selection
+            setTimeout(() => { window.Transfer && typeof window.Transfer.loadDatasetInfo === 'function' && window.Transfer.loadDatasetInfo(); }, 0);
         }
     });
 }
