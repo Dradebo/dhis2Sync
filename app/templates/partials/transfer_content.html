@@ -1321,13 +1321,17 @@ TrackerUI.initOuDropdown = async function() {
   const roots = await fetch('/api/organisation-units?instance=source').then(r => r.ok ? r.json() : []);
   tree.innerHTML = '';
   const ul = document.createElement('ul'); ul.className = 'list-unstyled'; tree.appendChild(ul);
-  (Array.isArray(roots) ? roots : []).forEach(node => ul.appendChild(renderNode(node)));
+  const rootArr = Array.isArray(roots) ? roots.slice() : [];
+  rootArr.sort((a,b) => ((a.displayName||a.name||a.id||'').localeCompare(b.displayName||b.name||b.id||'', undefined, {sensitivity:'base'})));
+  rootArr.forEach(node => ul.appendChild(renderNode(node)));
   const doSearch = async () => {
     const q = (qInput.value || '').trim();
     if (q.length < 2) { results.innerHTML = '<div class="small text-muted">Type at least 2 characters to search</div>'; return; }
     results.innerHTML = '<div class="small text-muted">Searching...</div>';
-    const list = await fetch(`/api/organisation-units/search?q=${encodeURIComponent(q)}&instance=source`).then(r => r.ok ? r.json() : []);
-    results.innerHTML = list.length ? list.map(ou => `<div><button class=\"btn btn-sm btn-outline-primary\" onclick=\"event.stopPropagation(); TrackerUI._chooseOu('${ou.id}','${(ou.displayName||ou.name||ou.id).replace(/'/g, "\\'")}')\">Select</button> <span class=\"small\">${ou.displayName||ou.name||ou.id}</span></div>`).join('') : '<div class="small text-muted">No results</div>';
+    const listRaw = await fetch(`/api/organisation-units/search?q=${encodeURIComponent(q)}&instance=source`).then(r => r.ok ? r.json() : []);
+    const list = Array.isArray(listRaw) ? listRaw.slice() : [];
+    list.sort((a,b) => ((a.displayName||a.name||a.id||'').localeCompare(b.displayName||b.name||b.id||'', undefined, {sensitivity:'base'})));
+    results.innerHTML = list.length ? list.map(ou => `<div><button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); TrackerUI._chooseOu('${ou.id}','${(ou.displayName||ou.name||ou.id).replace(/'/g, "\\'")}')">Select</button> <span class="small">${ou.displayName||ou.name||ou.id}</span></div>`).join('') : '<div class="small text-muted">No results</div>';
   };
   qBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); doSearch(); };
   qInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); doSearch(); } };
@@ -1368,7 +1372,8 @@ TrackerUI.initOuDropdown = async function() {
         if (!expanded) {
           expander.disabled = true; expander.innerHTML = '<i class="bi bi-caret-down"></i>';
           const children = await fetch(`/api/organisation-units?parent=${encodeURIComponent(node.id)}&instance=source`).then(r => r.ok ? r.json() : []);
-          const list = Array.isArray(children) ? children : [];
+          const list = Array.isArray(children) ? children.slice() : [];
+          list.sort((a,b) => ((a.displayName||a.name||a.id||'').localeCompare(b.displayName||b.name||b.id||'', undefined, {sensitivity:'base'})));
           if (list.length === 0) {
             childContainer.innerHTML = '';
             expander.replaceWith(document.createElement('span'));
