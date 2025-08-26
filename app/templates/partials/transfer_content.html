@@ -1339,12 +1339,24 @@ TrackerUI.initOuDropdown = async function() {
     li.innerHTML = `
       <div class="d-flex align-items-center gap-2">
         ${hasChildren ? '<button class="btn btn-sm btn-outline-secondary" data-role="expander"><i class="bi bi-caret-right"></i></button>' : '<span class="ms-4"></span>'}
-        <input type="radio" name="trk-ou-radio" />
+        <input type="checkbox" class="trk-ou-check" />
         <span class="small">${name}</span>
       </div>
     `;
-    const radio = li.querySelector('input[type="radio"]');
-    radio.onclick = () => { TrackerUI._ouState.selected = { id: node.id, name }; };
+    li.setAttribute('data-id', node.id);
+    const chk = li.querySelector('input.trk-ou-check');
+    const updateSelectedOu = () => {
+      const hidden = document.getElementById('trk-orgunit');
+      const label = document.getElementById('trk-ou-dd-label');
+      const selectedLis = Array.from(document.querySelectorAll('#trk-ou-tree input.trk-ou-check:checked')).map(el => el.closest('li'));
+      const selected = selectedLis.map(li2 => ({ id: li2.getAttribute('data-id') || '', name: li2.querySelector('span.small')?.textContent || '' }));
+      const ids = selected.map(s => s.id).filter(Boolean);
+      hidden.value = ids.join(',');
+      if (selected.length === 0) label.textContent = 'Pick organisation unit…';
+      else if (selected.length === 1) label.textContent = selected[0].name;
+      else label.textContent = `${selected.length} selected`;
+    };
+    chk.addEventListener('change', updateSelectedOu);
     if (hasChildren) {
       const expander = li.querySelector('[data-role="expander"]');
       const childContainer = document.createElement('ul'); childContainer.className = 'list-unstyled ms-4';

@@ -183,14 +183,19 @@ async def transfer_events_background(request: Request, background_tasks: Backgro
     dest_instance = (data.get("dest_instance") or "dest").strip()
     program_id = data.get("program_id")
     org_unit = data.get("org_unit")
+    org_units = data.get("org_units") or []
     start_date = data.get("start_date")
     end_date = data.get("end_date")
     program_stage = data.get("program_stage")
     status = data.get("status")
     dry_run = bool(data.get("dry_run", False))
 
-    if not all([program_id, org_unit, start_date, end_date]):
-        raise HTTPException(400, "program_id, org_unit, start_date, end_date are required")
+    if not program_id or not start_date or not end_date:
+        raise HTTPException(400, "program_id, start_date, end_date are required")
+    if not org_units:
+        if not org_unit:
+            raise HTTPException(400, "org_unit or org_units[] required")
+        org_units = [org_unit]
 
     connections = resolve_connections(request)
     if not connections or source_instance not in connections or dest_instance not in connections:
@@ -210,7 +215,7 @@ async def transfer_events_background(request: Request, background_tasks: Backgro
         connections[source_instance],
         connections[dest_instance],
         program_id,
-        org_unit,
+        org_units,
         start_date,
         end_date,
         program_stage,
@@ -257,7 +262,7 @@ def _run_event_transfer(
     source_conn: dict,
     dest_conn: dict,
     program_id: str,
-    org_unit: str,
+    org_units: List[str],
     start_date: str,
     end_date: str,
     program_stage: Optional[str],
@@ -272,64 +277,63 @@ def _run_event_transfer(
         src = Api(**source_conn)
         dst = Api(**dest_conn)
 
-        # Page through source events
-        page = 1
         page_size = 200
         total_fetched = 0
         total_sent = 0
         batches_sent = 0
         max_pages = 500  # hard safety cap
 
-        while page <= max_pages:
-            resp = src.list_events(
-                program_id=program_id,
-                org_unit=org_unit,
-                start_date=start_date,
-                end_date=end_date,
-                program_stage=program_stage,
-                status=status,
-                page=page,
-                page_size=page_size,
-            )
-            if resp.status_code != 200:
-                progress["messages"].append(f"Fetch failed on page {page}: HTTP {resp.status_code}")
-                break
-            payload = resp.json() or {}
-            events = payload.get("events", [])
-            if not events:
-                break
-            total_fetched += len(events)
+        for idx, org_unit in enumerate(org_units, start=1):
+            progress["messages"].append(f"Processing OU {idx}/{len(org_units)}: {org_unit}")
+            page = 1
+            while page <= max_pages:
+                resp = src.list_events(
+                    program_id=program_id,
+                    org_unit=org_unit,
+                    start_date=start_date,
+                    end_date=end_date,
+                    program_stage=program_stage,
+                    status=status,
+                    page=page,
+                    page_size=page_size,
+                )
+                if resp.status_code != 200:
+                    progress["messages"].append(f"Fetch failed for {org_unit} page {page}: HTTP {resp.status_code}")
+                    break
+                payload = resp.json() or {}
+                events = payload.get("events", [])
+                if not events:
+                    break
+                total_fetched += len(events)
 
-            # Transform to minimal payload
-            transformed = [_minimal_event(e) for e in events]
+                transformed = [_minimal_event(e) for e in events]
+                if dry_run:
+                    progress["messages"].append(f"Dry-run: would send {len(transformed)} events (OU {org_unit}, page {page})")
+                else:
+                    chunk = 200
+                    for i in range(0, len(transformed), chunk):
+                        batch = transformed[i : i + chunk]
+                        resp2 = dst.post_events_batch({"events": batch})
+                        if resp2.status_code in (200, 201):
+                            total_sent += len(batch)
+                            batches_sent += 1
+                            progress["messages"].append(
+                                f"✓ Sent {len(batch)} events (OU {org_unit}, batch {batches_sent}, page {page})"
+                            )
+                        else:
+                            progress["messages"].append(
+                                f"✗ Failed to send batch (OU {org_unit}, page {page}) HTTP {resp2.status_code}: {resp2.text[:200]}"
+                            )
 
-            if dry_run:
-                progress["messages"].append(f"Dry-run: would send {len(transformed)} events (page {page})")
-            else:
-                chunk = 200
-                for i in range(0, len(transformed), chunk):
-                    batch = transformed[i : i + chunk]
-                    resp2 = dst.post_events_batch({"events": batch})
-                    if resp2.status_code in (200, 201):
-                        total_sent += len(batch)
-                        batches_sent += 1
-                        progress["messages"].append(
-                            f"✓ Sent {len(batch)} events (batch {batches_sent}, page {page})"
-                        )
-                    else:
-                        progress["messages"].append(
-                            f"✗ Failed to send batch (page {page}) HTTP {resp2.status_code}: {resp2.text[:200]}"
-                        )
+                # Update progress
+                progress["progress"] = min(95, progress.get("progress", 0) + 2)
+                _save_progress(task_id, progress)
 
-            # Update progress
-            progress["progress"] = min(95, progress.get("progress", 0) + 3)
-            _save_progress(task_id, progress)
-
-            pager = payload.get("pager") or {}
-            page_count = int(pager.get("pageCount") or 1)
-            if page >= page_count:
-                break
-            page += 1
+                pager = payload.get("pager") or {}
+                page_count = int(pager.get("pageCount") or 1)
+                if page >= page_count:
+                    break
+                page += 1
 
         progress["status"] = "completed"
         progress["progress"] = 100
