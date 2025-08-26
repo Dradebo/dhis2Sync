@@ -256,11 +256,11 @@
                             <div class="row g-3 mt-1">
                                 <div class="col-md-4">
                                     <label class="form-label">Org Unit (source)</label>
-                                    <div class="dropdown w-100">
+                                    <div class="dropdown w-100" data-bs-auto-close="outside">
                                         <button class="btn btn-outline-secondary w-100 text-start dropdown-toggle" type="button" id="trk-ou-dd" data-bs-toggle="dropdown" aria-expanded="false">
                                             <span id="trk-ou-dd-label">Pick organisation unit…</span>
                                         </button>
-                                        <div class="dropdown-menu p-2" aria-labelledby="trk-ou-dd" style="width: 420px; max-height: 60vh; overflow:auto;">
+                                        <div class="dropdown-menu p-2" aria-labelledby="trk-ou-dd" style="width: 420px; max-height: 60vh; overflow:auto;" onclick="event.stopPropagation()">
                                             <div class="input-group input-group-sm mb-2">
                                                 <span class="input-group-text"><i class="bi bi-search"></i></span>
                                                 <input type="text" class="form-control" id="trk-ou-q" placeholder="Search..." />
@@ -1327,10 +1327,10 @@ TrackerUI.initOuDropdown = async function() {
     if (q.length < 2) { results.innerHTML = '<div class="small text-muted">Type at least 2 characters to search</div>'; return; }
     results.innerHTML = '<div class="small text-muted">Searching...</div>';
     const list = await fetch(`/api/organisation-units/search?q=${encodeURIComponent(q)}&instance=source`).then(r => r.ok ? r.json() : []);
-    results.innerHTML = list.length ? list.map(ou => `<div><button class=\"btn btn-sm btn-outline-primary\" onclick=\"TrackerUI._chooseOu('${ou.id}','${(ou.displayName||ou.name||ou.id).replace(/'/g, "\\'")}')\">Select</button> <span class=\"small\">${ou.displayName||ou.name||ou.id}</span></div>`).join('') : '<div class="small text-muted">No results</div>';
+    results.innerHTML = list.length ? list.map(ou => `<div><button class=\"btn btn-sm btn-outline-primary\" onclick=\"event.stopPropagation(); TrackerUI._chooseOu('${ou.id}','${(ou.displayName||ou.name||ou.id).replace(/'/g, "\\'")}')\">Select</button> <span class=\"small\">${ou.displayName||ou.name||ou.id}</span></div>`).join('') : '<div class="small text-muted">No results</div>';
   };
-  qBtn.onclick = doSearch;
-  qInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } };
+  qBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); doSearch(); };
+  qInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); doSearch(); } };
 
   function renderNode(node) {
     const li = document.createElement('li');
@@ -1338,7 +1338,7 @@ TrackerUI.initOuDropdown = async function() {
     const hasChildren = (node.hasChildren === true) || (node.leaf === false) || (Array.isArray(node.children) && node.children.length > 0);
     li.innerHTML = `
       <div class="d-flex align-items-center gap-2">
-        ${hasChildren ? '<button class="btn btn-sm btn-outline-secondary" data-role="expander"><i class="bi bi-caret-right"></i></button>' : '<span class="ms-4"></span>'}
+        ${hasChildren ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-role="expander"><i class="bi bi-caret-right"></i></button>' : '<span class="ms-4"></span>'}
         <input type="checkbox" class="trk-ou-check" />
         <span class="small">${name}</span>
       </div>
@@ -1356,13 +1356,15 @@ TrackerUI.initOuDropdown = async function() {
       else if (selected.length === 1) label.textContent = selected[0].name;
       else label.textContent = `${selected.length} selected`;
     };
-    chk.addEventListener('change', updateSelectedOu);
+    chk.addEventListener('change', (e) => { e.stopPropagation(); updateSelectedOu(); });
     if (hasChildren) {
       const expander = li.querySelector('[data-role="expander"]');
       const childContainer = document.createElement('ul'); childContainer.className = 'list-unstyled ms-4';
       li.appendChild(childContainer);
       let expanded = false;
-      expander.onclick = async () => {
+      expander.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         if (!expanded) {
           expander.disabled = true; expander.innerHTML = '<i class="bi bi-caret-down"></i>';
           const children = await fetch(`/api/organisation-units?parent=${encodeURIComponent(node.id)}&instance=source`).then(r => r.ok ? r.json() : []);
@@ -1375,7 +1377,7 @@ TrackerUI.initOuDropdown = async function() {
           }
           expanded = true; expander.disabled = false;
         } else { childContainer.innerHTML = ''; expander.innerHTML = '<i class="bi bi-caret-right"></i>'; expanded = false; }
-      };
+      });
     }
     return li;
   }
