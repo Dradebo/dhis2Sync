@@ -506,12 +506,21 @@ function generatePeriodOptions(periodType) {
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const list = [];
+  const isoWeekInfo = (d) => {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = (date.getUTCDay() || 7);
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    const isoYear = date.getUTCFullYear();
+    return { isoYear, weekNo };
+  };
   switch(periodType) {
     case 'Daily':
       for (let i=0;i<90;i++) { const d=new Date(currentDate); d.setDate(d.getDate()-i); const id=d.toISOString().split('T')[0].replace(/-/g,''); list.push({id, name:d.toLocaleDateString()}); }
       break;
     case 'Weekly':
-      for (let i=0;i<52;i++){ const y=currentYear-Math.floor(i/52); const w=52-(i%52); list.push({id:`${y}W${String(w).padStart(2,'0')}`, name:`Week ${w}, ${y}`}); }
+      for (let i=0;i<52;i++){ const d=new Date(currentDate); d.setDate(d.getDate()-i*7); const {isoYear, weekNo}=isoWeekInfo(d); list.push({id:`${isoYear}W${String(weekNo).padStart(2,'0')}`, name:`Week ${weekNo}, ${isoYear}`}); }
       break;
     case 'Monthly':
       for (let i=0;i<24;i++){ const d=new Date(currentYear, currentDate.getMonth()-i, 1); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); list.push({id:`${y}${m}`, name:d.toLocaleDateString('en-US',{year:'numeric',month:'long'})}); }

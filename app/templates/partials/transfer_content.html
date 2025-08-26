@@ -478,15 +478,28 @@ window.Transfer = {
         const currentDate = new Date();
         const currentYear = currentDate.getFullYear();
         const options = [];
+
+        // Helper to compute ISO week number and ISO week-year
+        const isoWeekInfo = (d) => {
+            const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            // Thursday in current week decides the year
+            const dayNum = (date.getUTCDay() || 7);
+            date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+            const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+            const isoYear = date.getUTCFullYear();
+            return { isoYear, weekNo };
+        };
         
         switch(periodType) {
             case 'Weekly':
                 for (let i = 0; i < 52; i++) {
-                    const year = currentYear - Math.floor(i / 52);
-                    const week = 52 - (i % 52);
+                    const dt = new Date(currentDate);
+                    dt.setDate(dt.getDate() - (i * 7));
+                    const { isoYear, weekNo } = isoWeekInfo(dt);
                     options.push({
-                        id: `${year}W${week.toString().padStart(2, '0')}`,
-                        name: `Week ${week}, ${year}`
+                        id: `${isoYear}W${String(weekNo).padStart(2, '0')}`,
+                        name: `Week ${weekNo}, ${isoYear}`
                     });
                 }
                 break;
