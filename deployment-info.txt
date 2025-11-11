@@ -1,0 +1,34 @@
+DHIS2Sync Deployment Information
+================================
+
+Deployment Name: dhis2sync
+AWS Region: us-east-1
+
+EC2 Public IP: 13.60.48.211
+SSH Key: /Users/sean/.ssh/dhis2sync-key.pem
+
+RDS Endpoint: dhis2sync-db.cpakquawkwqx.eu-north-1.rds.amazonaws.com
+Database Name: dhis2sync
+Database User: dbadmin
+Database Password: cl!t0R15
+
+Encryption Key: vwICGnuWigH38Igx+d93X5P0c3XNwrk1dtyGQk7mflM=
+
+Application URL: http://13.60.48.211
+
+Access Commands:
+================
+SSH to server:
+  ssh -i /Users/sean/.ssh/dhis2sync-key.pem ubuntu@13.60.48.211
+
+View logs:
+  ssh -i /Users/sean/.ssh/dhis2sync-key.pem ubuntu@13.60.48.211 'docker logs -f dhis2sync'
+
+Restart app:
+  ssh -i /Users/sean/.ssh/dhis2sync-key.pem ubuntu@13.60.48.211 'docker restart dhis2sync'
+
+Stop app:
+  ssh -i /Users/sean/.ssh/dhis2sync-key.pem ubuntu@13.60.48.211 'docker stop dhis2sync'
+
+Start app:
+  ssh -i /Users/sean/.ssh/dhis2sync-key.pem ubuntu@13.60.48.211 'docker start dhis2sync'

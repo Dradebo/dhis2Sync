@@ -1,0 +1,318 @@
+/**
+ * DHIS2 Sync Desktop - Main Application Styles
+ * Ported from web app (dashboard.html) for visual parity
+ */
+
+/* ============================
+   HEADER STYLING
+   ============================ */
+.main-header {
+    background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
+    color: white;
+    padding: 1.5rem 0;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 10px rgba(13, 110, 253, 0.2);
+}
+
+/* ============================
+   TAB NAVIGATION
+   ============================ */
+.nav-tabs .nav-link {
+    background: none;
+    border: none;
+    padding: 1rem 1.5rem;
+    margin-right: 0.25rem;
+    border-radius: 0.5rem 0.5rem 0 0;
+    color: #6c757d;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    border-color: transparent;
+    background: #f8f9fa;
+    color: #0d6efd;
+}
+
+.nav-tabs .nav-link.active {
+    background: white;
+    color: #0d6efd;
+    border: 1px solid #dee2e6;
+    border-bottom-color: white;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+}
+
+.nav-tabs {
+    border-bottom: 1px solid #dee2e6;
+    margin-bottom: 0;
+}
+
+.tab-content {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-top: none;
+    border-radius: 0 0 0.5rem 0.5rem;
+    padding: 2rem;
+    min-height: 500px;
+}
+
+.tab-icon {
+    margin-right: 0.5rem;
+    font-size: 1.1rem;
+}
+
+/* ============================
+   GLOBAL UI NORMALIZATION
+   ============================ */
+.btn {
+    padding: 0.5rem 1rem;
+    min-height: 2.5rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+}
+
+.btn i {
+    margin-right: 0.35rem;
+}
+
+.form-control,
+.form-select {
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+}
+
+.form-label {
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.input-group > .form-control,
+.input-group > .form-select,
+.input-group > .btn {
+    height: 2.5rem;
+}
+
+.badge {
+    padding: 0.4em 0.6em;
+    border-radius: 0.4rem;
+}
+
+/* ============================
+   RESPONSIVE ACTION BAR
+   ============================ */
+.action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+@media (max-width: 576px) {
+    .action-bar .btn {
+        flex: 1 1 100%;
+    }
+}
+
+/* ============================
+   CARD COMPONENTS
+   ============================ */
+.card-header {
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: 600;
+}
+
+.status-badge {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.75rem;
+}
+
+/* ============================
+   CONNECTION STATUS INDICATOR
+   ============================ */
+.connection-status {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+}
+
+.connection-status.connected {
+    background: #198754;
+}
+
+.connection-status.disconnected {
+    background: #dc3545;
+}
+
+.connection-status.unknown {
+    background: #6c757d;
+}
+
+/* ============================
+   UTILITY CLASSES
+   ============================ */
+.min-height-50 {
+    min-height: 50px;
+}
+
+.fs-1 {
+    font-size: 2.5rem !important;
+}
+
+/* ============================
+   TRANSFER TAB SPECIFIC
+   ============================ */
+.nav-pills .nav-link {
+    padding: 0.5rem 1rem;
+    margin-right: 0.25rem;
+    border-radius: 0.375rem;
+}
+
+.nav-pills .nav-link.active {
+    background-color: #0d6efd;
+}
+
+/* Period selection badges */
+.period-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    margin: 0.25rem;
+    background: #e9ecef;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+}
+
+.period-badge .btn-close {
+    font-size: 0.6rem;
+    margin-left: 0.5rem;
+}
+
+/* ============================
+   ORG UNIT TREE PICKER
+   ============================ */
+.ou-tree-item {
+    padding: 0.25rem 0;
+}
+
+.ou-tree-caret {
+    cursor: pointer;
+    user-select: none;
+    width: 20px;
+    display: inline-block;
+    text-align: center;
+}
+
+.ou-tree-children {
+    padding-left: 1.5rem;
+}
+
+/* ============================
+   DATA ELEMENT CHECKLIST
+   ============================ */
+.de-checklist-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.de-checklist-item:hover {
+    background: #f8f9fa;
+}
+
+/* ============================
+   PROGRESS COMPONENTS
+   ============================ */
+.progress {
+    height: 1.5rem;
+    border-radius: 0.5rem;
+}
+
+.progress-bar {
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+/* ============================
+   COMPLETENESS RESULTS
+   ============================ */
+.compliance-bar {
+    height: 8px;
+    border-radius: 4px;
+    background: #e9ecef;
+    overflow: hidden;
+}
+
+.compliance-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.compliance-fill.high {
+    background: #198754;
+}
+
+.compliance-fill.medium {
+    background: #ffc107;
+}
+
+.compliance-fill.low {
+    background: #dc3545;
+}
+
+/* ============================
+   SCHEDULE MODAL
+   ============================ */
+.cron-preset-btn {
+    font-size: 0.875rem;
+}
+
+/* ============================
+   ANIMATION UTILITIES
+   ============================ */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+/* ============================
+   RESPONSIVE TWEAKS
+   ============================ */
+@media (max-width: 768px) {
+    .main-header h1 {
+        font-size: 1.5rem;
+    }
+
+    .tab-content {
+        padding: 1rem;
+    }
+
+    .nav-tabs .nav-link {
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+
+    .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+}
