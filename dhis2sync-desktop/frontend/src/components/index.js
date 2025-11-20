@@ -174,6 +174,137 @@ export function renderEmptyState(icon, title, message, actionButton = '') {
 }
 
 /**
+ * Render a multi-step progress indicator
+ * @param {Array<{label: string, description?: string, status?: 'complete' | 'active' | 'pending' | 'disabled'}>} steps
+ * @returns {string} HTML string
+ */
+export function renderStepper(steps = []) {
+    if (!steps.length) return '';
+
+    const items = steps.map((step, index) => {
+        const status = step.status || 'pending';
+        const label = step.label || `Step ${index + 1}`;
+        const description = step.description ? `<div class="stepper-description">${escapeHtml(step.description)}</div>` : '';
+        const stepIdAttr = step.id ? ` data-step="${escapeHtml(step.id)}"` : '';
+
+        let indexContent = `${index + 1}`;
+        if (status === 'complete') {
+            indexContent = '<i class="bi bi-check-lg"></i>';
+        }
+
+        return `
+            <li class="stepper-step ${status}"${stepIdAttr}>
+                <div class="stepper-index">${indexContent}</div>
+                <div class="stepper-copy">
+                    <div class="stepper-label">${escapeHtml(label)}</div>
+                    ${description}
+                </div>
+            </li>
+        `;
+    }).join('');
+
+    return `<ol class="stepper">${items}</ol>`;
+}
+
+/**
+ * Render a section state card that highlights status + actions
+ * @param {Object} options
+ * @param {string} options.title
+ * @param {string} [options.subtitle]
+ * @param {string} [options.status] - success|warning|info|danger|neutral
+ * @param {string} [options.body] - HTML content for the body
+ * @param {string} [options.actions] - HTML for the actions footer
+ * @returns {string} HTML string
+ */
+export function renderSectionState({
+    title,
+    subtitle = '',
+    status = 'info',
+    body = '',
+    actions = ''
+} = {}) {
+    const statusConfig = {
+        success: { icon: 'bi-check-circle', label: 'Ready' },
+        warning: { icon: 'bi-exclamation-triangle', label: 'Needs attention' },
+        danger: { icon: 'bi-x-circle', label: 'Blocked' },
+        info: { icon: 'bi-info-circle', label: 'In progress' },
+        neutral: { icon: 'bi-dot', label: '' }
+    };
+
+    const cfg = statusConfig[status] || statusConfig.info;
+    const subtitleHtml = subtitle ? `<div class="section-state-subtitle">${escapeHtml(subtitle)}</div>` : '';
+    const actionsHtml = actions ? `<div class="section-state-actions">${actions}</div>` : '';
+
+    return `
+        <div class="section-state">
+            <div class="section-state-header">
+                <div>
+                    <div class="section-state-title">${escapeHtml(title)}</div>
+                    ${subtitleHtml}
+                </div>
+                <span class="status-pill status-${status}">
+                    <i class="bi ${cfg.icon} me-1"></i>${cfg.label}
+                </span>
+            </div>
+            ${body ? `<div class="section-state-body">${body}</div>` : ''}
+            ${actionsHtml}
+        </div>
+    `;
+}
+
+/**
+ * Render a compact progress panel with percentage + log stream
+ * @param {Object} options
+ * @param {string} [options.title]
+ * @param {number} [options.percent]
+ * @param {string} [options.status]
+ * @param {string} [options.message]
+ * @param {Array<string>} [options.logs]
+ * @returns {string} HTML string
+ */
+export function renderProgressPanel({
+    title = 'Progress',
+    percent = 0,
+    status = 'running',
+    message = '',
+    logs = []
+} = {}) {
+    const clamped = Math.max(0, Math.min(100, percent));
+    const badgeClass = {
+        completed: 'bg-success',
+        error: 'bg-danger',
+        failed: 'bg-danger',
+        running: 'bg-primary',
+        pending: 'bg-secondary'
+    }[status] || 'bg-primary';
+
+    const logHtml = (logs || []).slice(-6).map(entry => `
+        <div class="progress-log-entry">
+            <span class="progress-log-dot"></span>
+            <span>${escapeHtml(entry)}</span>
+        </div>
+    `).join('');
+
+    return `
+        <div class="progress-panel">
+            <div class="progress-panel-header">
+                <div class="fw-semibold">${escapeHtml(title)}</div>
+                <span class="badge ${badgeClass}">${escapeHtml(status)}</span>
+            </div>
+            <div class="progress mb-2">
+                <div class="progress-bar ${badgeClass}" role="progressbar"
+                     style="width: ${clamped}%"
+                     aria-valuenow="${clamped}" aria-valuemin="0" aria-valuemax="100">
+                    ${clamped}%
+                </div>
+            </div>
+            ${message ? `<div class="small text-muted mb-2">${escapeHtml(message)}</div>` : ''}
+            ${logHtml ? `<div class="progress-log">${logHtml}</div>` : ''}
+        </div>
+    `;
+}
+
+/**
  * Escape HTML to prevent XSS
  * @param {string} text - Text to escape
  * @returns {string} Escaped text

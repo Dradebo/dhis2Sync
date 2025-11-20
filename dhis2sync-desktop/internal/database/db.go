@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"dhis2sync-desktop/internal/models"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -29,6 +31,23 @@ func Init() (*gorm.DB, error) {
 	if strings.HasPrefix(databaseURL, "sqlite://") {
 		// SQLite
 		dbPath := strings.TrimPrefix(databaseURL, "sqlite://")
+
+		// If using default path, store in user config directory
+		if dbPath == "./dhis2sync.db" {
+			configDir, err := os.UserConfigDir()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user config directory: %w", err)
+			}
+
+			appDir := filepath.Join(configDir, "dhis2sync")
+			if err := os.MkdirAll(appDir, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create app directory: %w", err)
+			}
+
+			dbPath = filepath.Join(appDir, "dhis2sync.db")
+			log.Printf("Using database at: %s", dbPath)
+		}
+
 		dialector = sqlite.Open(dbPath)
 	} else if strings.HasPrefix(databaseURL, "postgresql://") || strings.HasPrefix(databaseURL, "postgres://") {
 		// PostgreSQL

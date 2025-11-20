@@ -99,6 +99,228 @@
 }
 
 /* ============================
+   STEPPER COMPONENT
+   ============================ */
+.stepper {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.stepper-step {
+    flex: 1 1 220px;
+    min-width: 180px;
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.85rem;
+    border-radius: 0.75rem;
+    border: 1px solid #e5e7eb;
+    background: #f8f9fa;
+    position: relative;
+}
+
+.stepper-step.complete {
+    border-color: #cfe2ff;
+    background: #e9f2ff;
+}
+
+.stepper-step.active {
+    border-color: #0d6efd;
+    background: #e7f1ff;
+}
+
+.stepper-step.disabled {
+    opacity: 0.5;
+}
+
+.stepper-index {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    border: 2px solid #ced4da;
+    color: #6c757d;
+    background: white;
+}
+
+.stepper-step.complete .stepper-index {
+    border-color: #198754;
+    color: #198754;
+}
+
+.stepper-step.active .stepper-index {
+    border-color: #0d6efd;
+    color: #0d6efd;
+}
+
+.stepper-label {
+    font-weight: 600;
+    color: #212529;
+}
+
+.stepper-description {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.stepper-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ============================
+   SECTION STATE CARDS
+   ============================ */
+.section-state {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    margin-bottom: 1rem;
+}
+
+.section-state-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.section-state-title {
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+}
+
+.section-state-subtitle {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+.section-state-body {
+    margin-top: 0.75rem;
+    color: #495057;
+}
+
+.section-state-actions {
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    text-transform: capitalize;
+}
+
+.status-pill.status-success {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.status-pill.status-warning {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.status-pill.status-danger {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.status-pill.status-info {
+    background: #cfe2ff;
+    color: #084298;
+}
+
+.status-pill.status-neutral {
+    background: #e9ecef;
+    color: #495057;
+}
+
+/* ============================
+   PROGRESS PANEL
+   ============================ */
+.progress-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    background: #fff;
+}
+
+.progress-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.progress-log {
+    max-height: 160px;
+    overflow-y: auto;
+    border-left: 2px solid #e5e7eb;
+    padding-left: 0.75rem;
+}
+
+.progress-log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    color: #495057;
+    margin-bottom: 0.35rem;
+}
+
+.progress-log-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #0d6efd;
+    margin-top: 0.35rem;
+    flex-shrink: 0;
+}
+
+/* ============================
+   TRANSFER PREVIEW METRICS
+   ============================ */
+.mini-stat {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #fff;
+}
+
+.mini-stat-label {
+    font-size: 0.85rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.mini-stat-value {
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: #212529;
+}
+
+.selected-period-badges .badge {
+    margin: 0.15rem;
+}
+
+/* ============================
    RESPONSIVE ACTION BAR
    ============================ */
 .action-bar {
@@ -286,6 +508,19 @@
 
 .fade-in {
     animation: fadeIn 0.3s ease;
+}
+
+/* ============================
+   PROFILE SELECTION
+   ============================ */
+.active-profile-item {
+    border: 2px solid #0d6efd !important;
+    background-color: #e7f1ff !important;
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1) !important;
+}
+
+.active-profile-item h6 {
+    color: #0d6efd !important;
 }
 
 /* ============================

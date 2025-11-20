@@ -1,16 +1,15 @@
 package transfer
 
-import "time"
-
 // TransferRequest represents a request to transfer data between DHIS2 instances
 type TransferRequest struct {
-	ProfileID        string            `json:"profile_id"`
-	SourceDatasetID  string            `json:"source_dataset"`
-	DestDatasetID    string            `json:"dest_dataset"`    // Can be different if mapping is needed
-	Periods          []string          `json:"periods"`         // e.g., ["202401", "202402"]
+	ProfileID       string   `json:"profile_id"`
+	SourceDatasetID string   `json:"source_dataset"`
+	DestDatasetID   string   `json:"dest_dataset"` // Can be different if mapping is needed
+	Periods         []string `json:"periods"`      // e.g., ["202401", "202402"]
 	// OrgUnits are auto-discovered from user's assigned org units - no manual selection needed
-	ElementMapping   map[string]string `json:"element_mapping"` // source element ID -> dest element ID
-	MarkComplete     bool              `json:"mark_complete"`   // Mark dataset as complete after transfer
+	ElementMapping         map[string]string `json:"element_mapping"` // source element ID -> dest element ID
+	MarkComplete           bool              `json:"mark_complete"`   // Mark dataset as complete after transfer
+	AttributeOptionComboID string            `json:"attribute_option_combo_id"`
 }
 
 // Dataset represents a DHIS2 dataset
@@ -24,14 +23,14 @@ type Dataset struct {
 
 // DatasetInfo contains detailed information about a dataset
 type DatasetInfo struct {
-	ID               string                `json:"id"`
-	Name             string                `json:"name"`
-	DisplayName      string                `json:"displayName"`
-	Code             string                `json:"code"`
-	PeriodType       string                `json:"periodType"`
-	DataElements     []DataElement         `json:"dataElements"`
-	CategoryCombos   []CategoryCombo       `json:"categoryCombos"`
-	OrganisationUnits []OrganisationUnit   `json:"organisationUnits"`
+	ID                string             `json:"id"`
+	Name              string             `json:"name"`
+	DisplayName       string             `json:"displayName"`
+	Code              string             `json:"code"`
+	PeriodType        string             `json:"periodType"`
+	DataElements      []DataElement      `json:"dataElements"`
+	CategoryCombo     *CategoryCombo     `json:"categoryCombo"`
+	OrganisationUnits []OrganisationUnit `json:"organisationUnits"`
 }
 
 // DataElement represents a DHIS2 data element
@@ -45,6 +44,14 @@ type DataElement struct {
 
 // CategoryCombo represents a DHIS2 category combination
 type CategoryCombo struct {
+	ID                   string                `json:"id"`
+	Name                 string                `json:"name"`
+	Code                 string                `json:"code"`
+	CategoryOptionCombos []CategoryOptionCombo `json:"categoryOptionCombos"`
+}
+
+// CategoryOptionCombo represents a DHIS2 category option combination
+type CategoryOptionCombo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Code string `json:"code"`
@@ -62,17 +69,17 @@ type OrganisationUnit struct {
 
 // DataValue represents a single data value in DHIS2
 type DataValue struct {
-	DataElement             string `json:"dataElement"`
-	Period                  string `json:"period"`
-	OrgUnit                 string `json:"orgUnit"`
-	CategoryOptionCombo     string `json:"categoryOptionCombo"`
-	AttributeOptionCombo    string `json:"attributeOptionCombo"`
-	Value                   string `json:"value"`
-	StoredBy                string `json:"storedBy,omitempty"`
-	Created                 string `json:"created,omitempty"`
-	LastUpdated             string `json:"lastUpdated,omitempty"`
-	Comment                 string `json:"comment,omitempty"`
-	FollowUp                bool   `json:"followUp,omitempty"`
+	DataElement          string `json:"dataElement"`
+	Period               string `json:"period"`
+	OrgUnit              string `json:"orgUnit"`
+	CategoryOptionCombo  string `json:"categoryOptionCombo"`
+	AttributeOptionCombo string `json:"attributeOptionCombo"`
+	Value                string `json:"value"`
+	StoredBy             string `json:"storedBy,omitempty"`
+	Created              string `json:"created,omitempty"`
+	LastUpdated          string `json:"lastUpdated,omitempty"`
+	Comment              string `json:"comment,omitempty"`
+	FollowUp             bool   `json:"followUp,omitempty"`
 }
 
 // DataValueSet represents a collection of data values
@@ -122,34 +129,35 @@ type JobStatus struct {
 	Level     string `json:"level"` // SUCCESS, ERROR, WARNING
 	Message   string `json:"message,omitempty"`
 	Summary   *struct {
-		Status      string          `json:"status"`
-		ImportCount ImportCount     `json:"importCount"`
+		Status      string           `json:"status"`
+		ImportCount ImportCount      `json:"importCount"`
 		Conflicts   []ImportConflict `json:"conflicts,omitempty"`
 	} `json:"summary,omitempty"`
 }
 
 // TransferProgress represents the progress of a transfer operation
 type TransferProgress struct {
-	TaskID          string                     `json:"task_id"`
-	Status          string                     `json:"status"` // starting, running, completed, error, awaiting_user_decision
-	Progress        int                        `json:"progress"` // 0-100
-	Messages        []string                   `json:"messages"`
-	TotalFetched    int                        `json:"total_fetched"`
-	TotalMapped     int                        `json:"total_mapped"`
-	TotalImported   int                        `json:"total_imported"`
-	ImportSummary   *ImportSummary             `json:"import_summary,omitempty"`
-	Error           string                     `json:"error,omitempty"`
-	UnmappedValues  map[string][]DataValue     `json:"unmapped_values,omitempty"`  // Key: "ouName:period", Value: unmapped data values
-	StartedAt       time.Time                  `json:"started_at"`
-	CompletedAt     *time.Time                 `json:"completed_at,omitempty"`
+	TaskID        string   `json:"task_id"`
+	Status        string   `json:"status"`   // starting, running, completed, error, awaiting_user_decision
+	Progress      int      `json:"progress"` // 0-100
+	Messages      []string `json:"messages"`
+	TotalFetched  int      `json:"total_fetched"`
+	TotalMapped   int      `json:"total_mapped"`
+	TotalImported int      `json:"total_imported"`
+	// Expose import summary as `result` to match existing frontend expectations (progress.result)
+	ImportSummary  *ImportSummary         `json:"result,omitempty"`
+	Error          string                 `json:"error,omitempty"`
+	UnmappedValues map[string][]DataValue `json:"unmapped_values,omitempty"` // Key: "ouName:period", Value: unmapped data values
+	StartedAt      string                 `json:"started_at"`
+	CompletedAt    string                 `json:"completed_at,omitempty"`
 }
 
 // ImportSummary represents the result of a DHIS2 import operation
 type ImportSummary struct {
-	Status       string              `json:"status"` // SUCCESS, WARNING, ERROR
-	Description  string              `json:"description"`
-	ImportCount  ImportCount         `json:"importCount"`
-	Conflicts    []ImportConflict    `json:"conflicts,omitempty"`
+	Status          string           `json:"status"` // SUCCESS, WARNING, ERROR
+	Description     string           `json:"description"`
+	ImportCount     ImportCount      `json:"importCount"`
+	Conflicts       []ImportConflict `json:"conflicts,omitempty"`
 	DataSetComplete string           `json:"dataSetComplete,omitempty"`
 }
 
@@ -163,23 +171,23 @@ type ImportCount struct {
 
 // ImportConflict represents a conflict during import
 type ImportConflict struct {
-	Object string `json:"object"`
-	Value  string `json:"value"`
+	Object    string `json:"object"`
+	Value     string `json:"value"`
 	ErrorCode string `json:"errorCode"`
 }
 
 // CompletionRequest represents a request to mark a dataset as complete
 type CompletionRequest struct {
-	DataSet string   `json:"dataSet"`
-	Period  string   `json:"period"`
+	DataSet  string   `json:"dataSet"`
+	Period   string   `json:"period"`
 	OrgUnits []string `json:"orgUnits"` // Can mark multiple OUs as complete
 }
 
 // CompletionResponse represents the response from marking dataset complete
 type CompletionResponse struct {
-	Status      string `json:"status"`
-	Imported    int    `json:"imported"`
-	Updated     int    `json:"updated"`
-	Ignored     int    `json:"ignored"`
-	Deleted     int    `json:"deleted"`
+	Status   string `json:"status"`
+	Imported int    `json:"imported"`
+	Updated  int    `json:"updated"`
+	Ignored  int    `json:"ignored"`
+	Deleted  int    `json:"deleted"`
 }

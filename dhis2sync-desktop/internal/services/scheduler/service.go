@@ -16,27 +16,36 @@ import (
 	"dhis2sync-desktop/internal/api"
 	"dhis2sync-desktop/internal/crypto"
 	"dhis2sync-desktop/internal/models"
+	"dhis2sync-desktop/internal/services/completeness"
 )
+
+// CompletenessServiceInterface defines the interface for completeness service integration
+type CompletenessServiceInterface interface {
+	StartAssessment(req completeness.AssessmentRequest) (string, error)
+	GetAssessmentProgress(taskID string) (*completeness.AssessmentProgress, error)
+}
 
 // Service handles scheduled job management and execution
 type Service struct {
-	db       *gorm.DB
-	ctx      context.Context
-	cron     *cron.Cron
-	jobs     map[string]cron.EntryID // jobID -> cron entry ID
-	jobsMu   sync.RWMutex
+	db                  *gorm.DB
+	ctx                 context.Context
+	cron                *cron.Cron
+	jobs                map[string]cron.EntryID // jobID -> cron entry ID
+	jobsMu              sync.RWMutex
+	completenessService CompletenessServiceInterface
 }
 
 // NewService creates a new scheduler service
-func NewService(db *gorm.DB, ctx context.Context) *Service {
+func NewService(db *gorm.DB, ctx context.Context, completenessService CompletenessServiceInterface) *Service {
 	// Create cron scheduler with seconds support
 	c := cron.New(cron.WithSeconds())
 
 	return &Service{
-		db:   db,
-		ctx:  ctx,
-		cron: c,
-		jobs: make(map[string]cron.EntryID),
+		db:                  db,
+		ctx:                 ctx,
+		cron:                c,
+		jobs:                make(map[string]cron.EntryID),
+		completenessService: completenessService,
 	}
 }
 
@@ -335,35 +344,88 @@ func (s *Service) runCompletenessJob(payload map[string]interface{}) {
 		return
 	}
 
-	// Get profile and API client
-	var profile models.ConnectionProfile
-	if err := s.db.First(&profile, "id = ?", profileID).Error; err != nil {
-		log.Printf("ERROR: Failed to get profile: %v", err)
-		return
+	// Build assessment request
+	req := completeness.AssessmentRequest{
+		ProfileID:           profileID,
+		Instance:            instance,
+		DatasetID:           datasetID,
+		Periods:             periods,
+		ParentOrgUnits:      parentOrgUnits,
+		ComplianceThreshold: 70, // Default threshold
+		IncludeParents:      false,
 	}
 
-	client, err := s.getAPIClient(&profile, instance)
-	if err != nil {
-		log.Printf("ERROR: Failed to create API client: %v", err)
-		return
+	// Extract optional parameters
+	if threshold, ok := payload["compliance_threshold"].(float64); ok {
+		req.ComplianceThreshold = int(threshold)
 	}
-
-	// Execute minimal completeness check (fetch dataset to verify it exists)
-	for _, period := range periods {
-		for _, parentOU := range parentOrgUnits {
-			params := map[string]string{
-				"dataSet":  datasetID,
-				"orgUnit":  parentOU,
-				"period":   period,
-				"children": "true",
-			}
-
-			_, err := client.Get("/api/dataValueSets", params)
-			if err != nil {
-				log.Printf("WARNING: Completeness check failed for %s/%s: %v", parentOU, period, err)
+	if includeParents, ok := payload["include_parents"].(bool); ok {
+		req.IncludeParents = includeParents
+	}
+	if requiredElements, ok := payload["required_elements"].([]interface{}); ok {
+		req.RequiredElements = make([]string, len(requiredElements))
+		for i, elem := range requiredElements {
+			if elemStr, ok := elem.(string); ok {
+				req.RequiredElements[i] = elemStr
 			}
 		}
 	}
+
+	log.Printf("Starting scheduled completeness assessment for dataset %s (profile: %s, instance: %s)", datasetID, profileID, instance)
+
+	// Execute assessment via completeness service
+	taskID, err := s.completenessService.StartAssessment(req)
+	if err != nil {
+		log.Printf("ERROR: Failed to start completeness assessment: %v", err)
+		return
+	}
+
+	log.Printf("Completeness assessment started with task ID: %s", taskID)
+
+	// Wait for completion (with timeout) - run in background to not block scheduler
+	go func() {
+		timeout := time.After(30 * time.Minute) // 30-minute timeout
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-timeout:
+				log.Printf("WARNING: Completeness assessment %s timed out after 30 minutes", taskID)
+				return
+			case <-ticker.C:
+				progress, err := s.completenessService.GetAssessmentProgress(taskID)
+				if err != nil {
+					log.Printf("ERROR: Failed to get progress for assessment %s: %v", taskID, err)
+					return
+				}
+
+				if progress == nil {
+					log.Printf("WARNING: Progress for assessment %s is nil, stopping monitoring", taskID)
+					return
+				}
+
+				if progress.Status == "completed" {
+					log.Printf("Scheduled completeness assessment completed successfully (task: %s)", taskID)
+					if progress.Results != nil {
+						log.Printf("Results: %d compliant, %d non-compliant, %d errors",
+							progress.Results.TotalCompliant,
+							progress.Results.TotalNonCompliant,
+							progress.Results.TotalErrors)
+					}
+					return
+				} else if progress.Status == "error" {
+					log.Printf("ERROR: Completeness assessment failed (task: %s)", taskID)
+					if len(progress.Messages) > 0 {
+						log.Printf("Last message: %s", progress.Messages[len(progress.Messages)-1])
+					}
+					return
+				}
+			}
+		}
+	}()
+
+	log.Printf("Completeness job initiated for dataset %s", datasetID)
 }
 
 // runTransferJob executes a data transfer job

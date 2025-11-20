@@ -9,6 +9,9 @@
  * - Alphabetical sorting
  */
 
+// Import Wails Go bindings
+import * as App from '../../wailsjs/go/main/App';
+
 export class OrgUnitTreePicker {
     constructor(containerId, profileId, instance) {
         this.containerId = containerId;
@@ -93,6 +96,9 @@ export class OrgUnitTreePicker {
 
             // Render tree
             this.renderTree(roots);
+
+            // Attach event listeners to rendered nodes (FIX: was missing)
+            this.attachTreeEventListeners();
 
         } catch (error) {
             console.error('Failed to load org units:', error);

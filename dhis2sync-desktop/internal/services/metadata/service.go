@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"gorm.io/gorm"
 
 	"dhis2sync-desktop/internal/api"
@@ -18,12 +19,12 @@ import (
 
 // Service handles metadata comparison and synchronization
 type Service struct {
-	db              *gorm.DB
-	ctx             context.Context
-	progressStore   map[string]*DiffProgress
-	progressMu      sync.RWMutex
-	mappingsStore   map[string]map[MetadataType]map[string]string // profileID -> type -> srcID:dstID
-	mappingsMu      sync.RWMutex
+	db            *gorm.DB
+	ctx           context.Context
+	progressStore map[string]*DiffProgress
+	progressMu    sync.RWMutex
+	mappingsStore map[string]map[MetadataType]map[string]string // profileID -> type -> srcID:dstID
+	mappingsMu    sync.RWMutex
 }
 
 // NewService creates a new metadata service
@@ -84,6 +85,9 @@ func (s *Service) StartDiff(profileID string, types []MetadataType) (string, err
 	s.progressMu.Lock()
 	s.progressStore[taskID] = progress
 	s.progressMu.Unlock()
+
+	// Emit initial state so frontend can render immediately
+	s.emitProgressEvent(taskID)
 
 	// Run in background goroutine
 	go s.performDiff(taskID, profile, types)
@@ -371,6 +375,8 @@ func (s *Service) performDiff(taskID string, profile *models.ConnectionProfile, 
 	s.progressStore[taskID].CompletedAt = time.Now().Unix()
 	s.progressMu.Unlock()
 
+	s.emitProgressEvent(taskID)
+
 	s.updateProgress(taskID, "completed", 100, "Assessment complete.")
 }
 
@@ -378,12 +384,18 @@ func (s *Service) updateProgress(taskID, status string, progress int, message st
 	s.progressMu.Lock()
 	defer s.progressMu.Unlock()
 
+	updated := false
 	if p, exists := s.progressStore[taskID]; exists {
 		p.Status = status
 		p.Progress = progress
 		if message != "" {
 			p.Messages = append(p.Messages, message)
 		}
+		updated = true
+	}
+
+	if updated {
+		go s.emitProgressEvent(taskID)
 	}
 }
 
@@ -391,9 +403,45 @@ func (s *Service) appendMessage(taskID, message string) {
 	s.progressMu.Lock()
 	defer s.progressMu.Unlock()
 
+	appended := false
 	if p, exists := s.progressStore[taskID]; exists {
 		p.Messages = append(p.Messages, message)
+		appended = true
 	}
+
+	if appended {
+		go s.emitProgressEvent(taskID)
+	}
+}
+
+func (s *Service) emitProgressEvent(taskID string) {
+	s.progressMu.RLock()
+	progress, exists := s.progressStore[taskID]
+	s.progressMu.RUnlock()
+	if !exists {
+		return
+	}
+
+	payload := map[string]interface{}{
+		"task_id":  taskID,
+		"status":   progress.Status,
+		"progress": progress.Progress,
+		"messages": append([]string(nil), progress.Messages...),
+	}
+
+	if len(progress.Messages) > 0 {
+		payload["message"] = progress.Messages[len(progress.Messages)-1]
+	}
+
+	if progress.Results != nil {
+		payload["results"] = progress.Results
+	}
+
+	if progress.CompletedAt != 0 {
+		payload["completed_at"] = progress.CompletedAt
+	}
+
+	runtime.EventsEmit(s.ctx, fmt.Sprintf("metadata:%s", taskID), payload)
 }
 
 // fetchType retrieves metadata objects for a specific type

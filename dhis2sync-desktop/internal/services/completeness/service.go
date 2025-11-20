@@ -47,15 +47,19 @@ func (s *Service) StartAssessment(req AssessmentRequest) (string, error) {
 
 	taskID := uuid.New().String()
 	progress := &AssessmentProgress{
-		TaskID:   taskID,
-		Status:   "starting",
-		Progress: 0,
-		Messages: []string{"Starting completeness assessment..."},
+		TaskID:    taskID,
+		ProfileID: req.ProfileID,
+		Status:    "starting",
+		Progress:  0,
+		Messages:  []string{"Starting completeness assessment..."},
 	}
 
 	s.assessmentMu.Lock()
 	s.assessmentStore[taskID] = progress
 	s.assessmentMu.Unlock()
+
+	// Emit initial state for frontend progress tracker
+	s.emitAssessmentEvent(taskID)
 
 	// Run in background goroutine
 	go s.performAssessment(taskID, profile, req)
@@ -464,12 +468,18 @@ func (s *Service) updateProgress(taskID, status string, progress int, message st
 	s.assessmentMu.Lock()
 	defer s.assessmentMu.Unlock()
 
+	updated := false
 	if p, exists := s.assessmentStore[taskID]; exists {
 		p.Status = status
 		p.Progress = progress
 		if message != "" {
 			p.Messages = append(p.Messages, message)
 		}
+		updated = true
+	}
+
+	if updated {
+		go s.emitAssessmentEvent(taskID)
 	}
 }
 
@@ -477,9 +487,45 @@ func (s *Service) appendMessage(taskID, message string) {
 	s.assessmentMu.Lock()
 	defer s.assessmentMu.Unlock()
 
+	appended := false
 	if p, exists := s.assessmentStore[taskID]; exists {
 		p.Messages = append(p.Messages, message)
+		appended = true
 	}
+
+	if appended {
+		go s.emitAssessmentEvent(taskID)
+	}
+}
+
+func (s *Service) emitAssessmentEvent(taskID string) {
+	s.assessmentMu.RLock()
+	progress, exists := s.assessmentStore[taskID]
+	s.assessmentMu.RUnlock()
+	if !exists {
+		return
+	}
+
+	payload := map[string]interface{}{
+		"task_id":  taskID,
+		"status":   progress.Status,
+		"progress": progress.Progress,
+		"messages": append([]string(nil), progress.Messages...),
+	}
+
+	if len(progress.Messages) > 0 {
+		payload["message"] = progress.Messages[len(progress.Messages)-1]
+	}
+
+	if progress.Results != nil {
+		payload["results"] = progress.Results
+	}
+
+	if progress.CompletedAt != 0 {
+		payload["completed_at"] = progress.CompletedAt
+	}
+
+	runtime.EventsEmit(s.ctx, fmt.Sprintf("assessment:%s", taskID), payload)
 }
 
 func (s *Service) updateBulkProgress(taskID, status string, progress int, message string) {

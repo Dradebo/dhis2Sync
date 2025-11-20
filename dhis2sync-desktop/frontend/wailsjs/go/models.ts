@@ -106,6 +106,7 @@ export namespace completeness {
 	}
 	export class AssessmentProgress {
 	    task_id: string;
+	    profile_id?: string;
 	    status: string;
 	    progress: number;
 	    messages: string[];
@@ -119,6 +120,7 @@ export namespace completeness {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.task_id = source["task_id"];
+	        this.profile_id = source["profile_id"];
 	        this.status = source["status"];
 	        this.progress = source["progress"];
 	        this.messages = source["messages"];
@@ -963,10 +965,27 @@ export namespace tracker {
 
 export namespace transfer {
 	
+	export class CategoryOptionCombo {
+	    id: string;
+	    name: string;
+	    code: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CategoryOptionCombo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.code = source["code"];
+	    }
+	}
 	export class CategoryCombo {
 	    id: string;
 	    name: string;
 	    code: string;
+	    categoryOptionCombos: CategoryOptionCombo[];
 	
 	    static createFrom(source: any = {}) {
 	        return new CategoryCombo(source);
@@ -977,8 +996,28 @@ export namespace transfer {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.code = source["code"];
+	        this.categoryOptionCombos = this.convertValues(source["categoryOptionCombos"], CategoryOptionCombo);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class DataElement {
 	    id: string;
 	    name: string;
@@ -1080,7 +1119,7 @@ export namespace transfer {
 	    code: string;
 	    periodType: string;
 	    dataElements: DataElement[];
-	    categoryCombos: CategoryCombo[];
+	    categoryCombo?: CategoryCombo;
 	    organisationUnits: OrganisationUnit[];
 	
 	    static createFrom(source: any = {}) {
@@ -1095,7 +1134,7 @@ export namespace transfer {
 	        this.code = source["code"];
 	        this.periodType = source["periodType"];
 	        this.dataElements = this.convertValues(source["dataElements"], DataElement);
-	        this.categoryCombos = this.convertValues(source["categoryCombos"], CategoryCombo);
+	        this.categoryCombo = this.convertValues(source["categoryCombo"], CategoryCombo);
 	        this.organisationUnits = this.convertValues(source["organisationUnits"], OrganisationUnit);
 	    }
 	
@@ -1241,13 +1280,11 @@ export namespace transfer {
 	    total_fetched: number;
 	    total_mapped: number;
 	    total_imported: number;
-	    import_summary?: ImportSummary;
+	    result?: ImportSummary;
 	    error?: string;
 	    unmapped_values?: Record<string, Array<DataValue>>;
-	    // Go type: time
-	    started_at: any;
-	    // Go type: time
-	    completed_at?: any;
+	    started_at: string;
+	    completed_at?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TransferProgress(source);
@@ -1262,11 +1299,11 @@ export namespace transfer {
 	        this.total_fetched = source["total_fetched"];
 	        this.total_mapped = source["total_mapped"];
 	        this.total_imported = source["total_imported"];
-	        this.import_summary = this.convertValues(source["import_summary"], ImportSummary);
+	        this.result = this.convertValues(source["result"], ImportSummary);
 	        this.error = source["error"];
 	        this.unmapped_values = this.convertValues(source["unmapped_values"], Array<DataValue>, true);
-	        this.started_at = this.convertValues(source["started_at"], null);
-	        this.completed_at = this.convertValues(source["completed_at"], null);
+	        this.started_at = source["started_at"];
+	        this.completed_at = source["completed_at"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1294,6 +1331,7 @@ export namespace transfer {
 	    periods: string[];
 	    element_mapping: Record<string, string>;
 	    mark_complete: boolean;
+	    attribute_option_combo_id: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TransferRequest(source);
@@ -1307,6 +1345,7 @@ export namespace transfer {
 	        this.periods = source["periods"];
 	        this.element_mapping = source["element_mapping"];
 	        this.mark_complete = source["mark_complete"];
+	        this.attribute_option_combo_id = source["attribute_option_combo_id"];
 	    }
 	}
 

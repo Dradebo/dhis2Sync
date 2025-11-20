@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"dhis2sync-desktop/internal/crypto"
 	"dhis2sync-desktop/internal/database"
 	"dhis2sync-desktop/internal/models"
+
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -91,7 +94,7 @@ func (s *Service) GetDatasetInfo(profileID string, datasetID string, sourceOrDes
 	// Fetch dataset details
 	endpoint := fmt.Sprintf("api/dataSets/%s.json", datasetID)
 	params := map[string]string{
-		"fields": "id,name,displayName,code,periodType,dataSetElements[dataElement[id,name,displayName,code,valueType]],organisationUnits[id,name,displayName,code,level,path]",
+		"fields": "id,name,displayName,code,periodType,dataSetElements[dataElement[id,name,displayName,code,valueType]],organisationUnits[id,name,displayName,code,level,path],categoryCombo[id,name,code,categoryOptionCombos[id,name,code]]",
 	}
 
 	resp, err := client.Get(endpoint, params)
@@ -103,12 +106,43 @@ func (s *Service) GetDatasetInfo(profileID string, datasetID string, sourceOrDes
 		return nil, fmt.Errorf("API request failed: %s", resp.Status())
 	}
 
-	var datasetInfo DatasetInfo
-	if err := json.Unmarshal(resp.Body(), &datasetInfo); err != nil {
+	// Unmarshal into intermediate struct to handle DHIS2's dataSetElements wrapper
+	var apiResponse struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		DisplayName string `json:"displayName"`
+		Code        string `json:"code"`
+		PeriodType  string `json:"periodType"`
+		DataSetElements []struct {
+			DataElement DataElement `json:"dataElement"`
+		} `json:"dataSetElements"`
+		CategoryCombo     *CategoryCombo     `json:"categoryCombo"`
+		OrganisationUnits []OrganisationUnit `json:"organisationUnits"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &apiResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	return &datasetInfo, nil
+	// Extract data elements from wrapper objects
+	dataElements := make([]DataElement, len(apiResponse.DataSetElements))
+	for i, wrapper := range apiResponse.DataSetElements {
+		dataElements[i] = wrapper.DataElement
+	}
+
+	// Build final DatasetInfo struct
+	datasetInfo := &DatasetInfo{
+		ID:                apiResponse.ID,
+		Name:              apiResponse.Name,
+		DisplayName:       apiResponse.DisplayName,
+		Code:              apiResponse.Code,
+		PeriodType:        apiResponse.PeriodType,
+		DataElements:      dataElements,
+		CategoryCombo:     apiResponse.CategoryCombo,
+		OrganisationUnits: apiResponse.OrganisationUnits,
+	}
+
+	return datasetInfo, nil
 }
 
 // StartTransfer initiates a data transfer operation in the background
@@ -118,11 +152,11 @@ func (s *Service) StartTransfer(req TransferRequest) (string, error) {
 
 	// Initialize progress tracking
 	progress := &TransferProgress{
-		TaskID:     taskID,
-		Status:     "starting",
-		Progress:   0,
-		Messages:   []string{"Initializing transfer..."},
-		StartedAt:  time.Now(),
+		TaskID:    taskID,
+		Status:    "starting",
+		Progress:  0,
+		Messages:  []string{"Initializing transfer..."},
+		StartedAt: time.Now().Format(time.RFC3339),
 	}
 
 	// Store in memory
@@ -290,9 +324,14 @@ func (s *Service) performTransfer(taskID string, req TransferRequest) {
 		// Fetch data for ALL periods for this org unit
 		for _, period := range req.Periods {
 			params := map[string]string{
-				"dataSet": req.SourceDatasetID,
-				"orgUnit": sourceOUID,
-				"period":  period,
+				"dataSet":  req.SourceDatasetID,
+				"orgUnit":  sourceOUID,
+				"period":   period,
+				"children": "true",  // mirror FastAPI behavior of including children
+				"paging":   "false", // ensure we always get full result set
+			}
+			if req.AttributeOptionComboID != "" {
+				params["attributeOptionCombo"] = req.AttributeOptionComboID
 			}
 
 			resp, err := sourceClient.Get("api/dataValueSets", params)
@@ -366,12 +405,12 @@ func (s *Service) performTransfer(taskID string, req TransferRequest) {
 	s.updateProgress(taskID, "running", 70, fmt.Sprintf("✓ Fetched %d total data values from %d org units", len(allMappedValues), totalOUs))
 
 	// PHASE 2: Bulk import all accumulated data values
-	var totalImported, totalUpdated int
+	var totalImported, totalUpdated, totalIgnored, totalDeleted int
 
 	if len(allMappedValues) > 0 {
-		s.updateProgress(taskID, "running", 72, fmt.Sprintf("Importing %d data values sequentially (50 values per chunk)...", len(allMappedValues)))
+		s.updateProgress(taskID, "running", 72, fmt.Sprintf("Importing %d data values via async mode (500 values per chunk)...", len(allMappedValues)))
 
-		summaries, err := s.importDataValuesBulk(destClient, allMappedValues, 50, taskID) // 50 values per chunk (sequential, safer for slow server)
+		summaries, err := s.importDataValuesBulkAsync(destClient, allMappedValues, 500, taskID) // Async mode: 500 values per chunk (balances throughput with server processing time)
 		if err != nil {
 			s.updateProgress(taskID, "error", 72, fmt.Sprintf("✗ Bulk import failed: %v", err))
 			return
@@ -381,12 +420,71 @@ func (s *Service) performTransfer(taskID string, req TransferRequest) {
 		for _, summary := range summaries {
 			totalImported += summary.ImportCount.Imported
 			totalUpdated += summary.ImportCount.Updated
+			totalIgnored += summary.ImportCount.Ignored
+			totalDeleted += summary.ImportCount.Deleted
 		}
 
-		s.updateProgress(taskID, "running", 95, fmt.Sprintf("✓ Bulk import complete: imported=%d, updated=%d", totalImported, totalUpdated))
+		// Build friendly message that handles "ignored" values gracefully
+		var bulkMsg string
+		if totalIgnored > 0 && totalImported == 0 && totalUpdated == 0 {
+			bulkMsg = fmt.Sprintf("✓ Bulk import complete: %d values already exist (ignored)", totalIgnored)
+		} else if totalIgnored > 0 {
+			bulkMsg = fmt.Sprintf("✓ Bulk import complete: %d new, %d updated, %d already exist", totalImported, totalUpdated, totalIgnored)
+		} else {
+			bulkMsg = fmt.Sprintf("✓ Bulk import complete: %d new, %d updated", totalImported, totalUpdated)
+		}
+
+		s.updateProgress(taskID, "running", 95, bulkMsg)
 	} else {
 		s.updateProgress(taskID, "completed", 100, "No data values to import after mapping")
 		return
+	}
+
+	// Persist aggregate import summary so the frontend (and future sessions) can inspect results
+	summaryStatus := "SUCCESS"
+	if len(notFoundOUs) > 0 {
+		summaryStatus = "WARNING"
+	}
+
+	// Build description that clarifies ignored values
+	var description string
+	if totalIgnored > 0 && len(notFoundOUs) > 0 {
+		description = fmt.Sprintf("Imported=%d, Updated=%d, Already exist=%d, Org units without matches=%d",
+			totalImported, totalUpdated, totalIgnored, len(notFoundOUs))
+	} else if totalIgnored > 0 {
+		description = fmt.Sprintf("Imported=%d, Updated=%d, Already exist=%d (no changes needed)",
+			totalImported, totalUpdated, totalIgnored)
+	} else {
+		description = fmt.Sprintf("Imported=%d, Updated=%d (org units without matches in dest: %d)",
+			totalImported, totalUpdated, len(notFoundOUs))
+	}
+
+	summary := ImportSummary{
+		Status:      summaryStatus,
+		Description: description,
+		ImportCount: ImportCount{
+			Imported: totalImported,
+			Updated:  totalUpdated,
+			Ignored:  totalIgnored,
+			Deleted:  totalDeleted,
+		},
+	}
+
+	// Attach to in-memory progress
+	s.taskMu.Lock()
+	if progress, exists := s.taskStore[taskID]; exists {
+		progress.ImportSummary = &summary
+	}
+	s.taskMu.Unlock()
+
+	// Persist summary JSON into TaskProgress.Results for durability
+	if data, err := json.Marshal(summary); err == nil {
+		db := database.GetDB()
+		var taskProgress models.TaskProgress
+		if err := db.Where("id = ?", taskID).First(&taskProgress).Error; err == nil {
+			taskProgress.Results = string(data)
+			db.Save(&taskProgress)
+		}
 	}
 
 	// Batch mark datasets as complete (if requested and successful transfers exist)
@@ -489,8 +587,17 @@ func (s *Service) performTransfer(taskID string, req TransferRequest) {
 	}
 
 	// No unmapped values - complete transfer normally
-	msg := fmt.Sprintf("🎉 Transfer complete! Processed: %d org units, Imported: %d, Updated: %d, Not found: %d",
-		totalOUs, totalImported, totalUpdated, len(notFoundOUs))
+	// Build completion message that clearly shows ignored values
+	var msg string
+	if totalIgnored > 0 && totalImported == 0 && totalUpdated == 0 {
+		msg = fmt.Sprintf("🎉 Transfer complete! All %d values already exist in destination (no changes needed)", totalIgnored)
+	} else if totalIgnored > 0 {
+		msg = fmt.Sprintf("🎉 Transfer complete! Processed: %d org units, %d new, %d updated, %d already exist, %d not found",
+			totalOUs, totalImported, totalUpdated, totalIgnored, len(notFoundOUs))
+	} else {
+		msg = fmt.Sprintf("🎉 Transfer complete! Processed: %d org units, %d new, %d updated, %d not found",
+			totalOUs, totalImported, totalUpdated, len(notFoundOUs))
+	}
 	s.updateProgress(taskID, "completed", 100, msg)
 
 	if len(notFoundOUs) > 0 {
@@ -500,8 +607,8 @@ func (s *Service) performTransfer(taskID string, req TransferRequest) {
 	// Mark completion time
 	s.taskMu.Lock()
 	if progress, exists := s.taskStore[taskID]; exists {
-		now := time.Now()
-		progress.CompletedAt = &now
+		now := time.Now().Format(time.RFC3339)
+		progress.CompletedAt = now
 	}
 	s.taskMu.Unlock()
 }
@@ -791,26 +898,47 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 
 		log.Printf("Submitting async job %d/%d (%d values)...", chunkIdx+1, numChunks, len(chunk))
 
-		// POST with async=true and preheatCache=true
-		resp, err := client.Post("api/dataValueSets?async=true&preheatCache=true", payload)
-		if err != nil {
-			submissionErrors = append(submissionErrors, fmt.Errorf("chunk %d submission failed: %w", chunkIdx+1, err))
+		// POST with async=true and preheatCache=true (with retry logic)
+		var resp []byte
+
+		retryErr := retryWithBackoff(taskID, func() error {
+			r, e := client.Post("api/dataValueSets?async=true&preheatCache=true", payload)
+			if e != nil {
+				return e
+			}
+			if !r.IsSuccess() {
+				return fmt.Errorf("HTTP %d: %s", r.StatusCode(), r.String())
+			}
+			resp = r.Body()
+			return nil
+		}, 3, func(tid, msg string) {
+			s.updateProgress(tid, "running", 72, fmt.Sprintf("Chunk %d/%d: %s", chunkIdx+1, numChunks, msg))
+		})
+
+		if retryErr != nil {
+			submissionErrors = append(submissionErrors, fmt.Errorf("chunk %d submission failed after retries: %w", chunkIdx+1, retryErr))
 			continue
 		}
 
-		if !resp.IsSuccess() {
-			submissionErrors = append(submissionErrors, fmt.Errorf("chunk %d submission failed: HTTP %d: %s", chunkIdx+1, resp.StatusCode(), resp.String()))
+		if resp == nil {
+			submissionErrors = append(submissionErrors, fmt.Errorf("chunk %d: nil response after successful retry", chunkIdx+1))
 			continue
 		}
 
 		// Parse async job response
 		var jobResp AsyncJobResponse
-		if err := json.Unmarshal(resp.Body(), &jobResp); err != nil {
+		if err := json.Unmarshal(resp, &jobResp); err != nil {
+			log.Printf("[ERROR] Chunk %d/%d: Failed to parse job submission response. Body: %s. Error: %v",
+				chunkIdx+1, numChunks, string(resp), err)
 			submissionErrors = append(submissionErrors, fmt.Errorf("chunk %d parse failed: %w", chunkIdx+1, err))
 			continue
 		}
 
+		log.Printf("[DEBUG] Chunk %d/%d: Job submission response: %+v", chunkIdx+1, numChunks, jobResp)
+
 		if jobResp.Response.ID == "" {
+			log.Printf("[ERROR] Chunk %d/%d: No job ID in response. Full response: %s",
+				chunkIdx+1, numChunks, string(resp))
 			submissionErrors = append(submissionErrors, fmt.Errorf("chunk %d: no job ID returned", chunkIdx+1))
 			continue
 		}
@@ -854,8 +982,8 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 			s.updateProgress(taskID, "running", 75,
 				fmt.Sprintf("⏳ Polling job %d/%d (%d values)...", j.ChunkNum, numChunks, j.NumValues))
 
-			// Poll this job until completion
-			summary, err := s.pollAsyncJob(client, j.JobID, j.ChunkNum, numChunks, taskID)
+			// Poll this job until completion (with retry logic)
+			summary, err := s.pollAsyncJobWithRetry(client, j.JobID, j.ChunkNum, numChunks, taskID)
 			if err != nil {
 				errChan <- fmt.Errorf("job %d (ID=%s) failed: %w", j.ChunkNum, j.JobID, err)
 				return
@@ -897,6 +1025,32 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 	return summaries, nil
 }
 
+// pollAsyncJobWithRetry wraps pollAsyncJob with retry logic for network failures
+func (s *Service) pollAsyncJobWithRetry(client *api.Client, jobID string, chunkNum, totalChunks int, taskID string) (*ImportSummary, error) {
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		summary, err := s.pollAsyncJob(client, jobID, chunkNum, totalChunks, taskID)
+		if err == nil {
+			return summary, nil
+		}
+
+		// Log retry attempt
+		if attempt < maxRetries {
+			log.Printf("Poll attempt %d/%d failed for job %d/%d (ID=%s): %v (retrying in 5s...)",
+				attempt, maxRetries, chunkNum, totalChunks, jobID, err)
+			s.updateProgress(taskID, "running", 75,
+				fmt.Sprintf("⚠ Job %d/%d polling failed (attempt %d/%d), retrying...",
+					chunkNum, totalChunks, attempt, maxRetries))
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Final attempt failed
+		return nil, fmt.Errorf("job polling failed after %d attempts: %w", maxRetries, err)
+	}
+	return nil, fmt.Errorf("unreachable")
+}
+
 // pollAsyncJob polls a single DHIS2 async job until completion or failure
 func (s *Service) pollAsyncJob(client *api.Client, jobID string, chunkNum, totalChunks int, taskID string) (*ImportSummary, error) {
 	endpoint := fmt.Sprintf("api/system/tasks/DATAVALUE_IMPORT/%s", jobID)
@@ -908,25 +1062,46 @@ func (s *Service) pollAsyncJob(client *api.Client, jobID string, chunkNum, total
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		resp, err := client.Get(endpoint, nil)
 		if err != nil {
+			log.Printf("[DEBUG] Job %d/%d attempt %d: HTTP error: %v", chunkNum, totalChunks, attempt, err)
 			return nil, fmt.Errorf("polling attempt %d failed: %w", attempt, err)
 		}
 
+		log.Printf("[DEBUG] Job %d/%d attempt %d: HTTP %d, Body length: %d bytes",
+			chunkNum, totalChunks, attempt, resp.StatusCode(), len(resp.Body()))
+
 		if !resp.IsSuccess() {
+			log.Printf("[DEBUG] Job %d/%d: Non-success status. Body: %s", chunkNum, totalChunks, string(resp.Body()))
 			return nil, fmt.Errorf("polling returned HTTP %d: %s", resp.StatusCode(), resp.String())
+		}
+
+		// **LOG THE RAW RESPONSE**
+		rawBody := string(resp.Body())
+		if attempt == 1 || attempt%30 == 0 || attempt == maxAttempts {
+			log.Printf("[DEBUG] Job %d/%d attempt %d raw response: %s", chunkNum, totalChunks, attempt, rawBody)
 		}
 
 		// Parse job status (DHIS2 returns array of status objects)
 		var statuses []JobStatus
 		if err := json.Unmarshal(resp.Body(), &statuses); err != nil {
+			log.Printf("[ERROR] Job %d/%d: JSON parse failed. Raw body: %s. Error: %v",
+				chunkNum, totalChunks, rawBody, err)
 			return nil, fmt.Errorf("failed to parse job status: %w", err)
 		}
 
+		log.Printf("[DEBUG] Job %d/%d attempt %d: Parsed %d status objects", chunkNum, totalChunks, attempt, len(statuses))
+
 		if len(statuses) == 0 {
+			if attempt%30 == 0 {
+				log.Printf("[WARN] Job %d/%d: Empty status array after %d attempts (%d seconds)",
+					chunkNum, totalChunks, attempt, attempt*2)
+			}
 			time.Sleep(pollInterval)
 			continue
 		}
 
 		jobStatus := statuses[0] // Get first (latest) status
+		log.Printf("[DEBUG] Job %d/%d attempt %d: Status - completed=%v, level=%s, message=%s",
+			chunkNum, totalChunks, attempt, jobStatus.Completed, jobStatus.Level, jobStatus.Message)
 
 		// Check if completed
 		if jobStatus.Completed {
@@ -936,15 +1111,28 @@ func (s *Service) pollAsyncJob(client *api.Client, jobID string, chunkNum, total
 				return nil, fmt.Errorf("job failed: %s", jobStatus.Message)
 			}
 
-			// Extract import summary
-			if jobStatus.Summary == nil {
-				return nil, fmt.Errorf("job completed but no summary available")
-			}
-
-			summary := &ImportSummary{
-				Status:      jobStatus.Summary.Status,
-				ImportCount: jobStatus.Summary.ImportCount,
-				Conflicts:   jobStatus.Summary.Conflicts,
+			// Extract import summary - try structured summary first, fallback to message parsing
+			var summary *ImportSummary
+			if jobStatus.Summary != nil {
+				// Structured summary available (ideal case)
+				summary = &ImportSummary{
+					Status:      jobStatus.Summary.Status,
+					ImportCount: jobStatus.Summary.ImportCount,
+					Conflicts:   jobStatus.Summary.Conflicts,
+				}
+			} else if jobStatus.Message != "" {
+				// No structured summary, try parsing the message string
+				importCounts, err := parseImportMessageCounts(jobStatus.Message)
+				if err != nil {
+					return nil, fmt.Errorf("job completed but could not extract summary: %w", err)
+				}
+				summary = &ImportSummary{
+					Status:      "SUCCESS", // Level is INFO/SUCCESS if we got here
+					Description: jobStatus.Message,
+					ImportCount: *importCounts,
+				}
+			} else {
+				return nil, fmt.Errorf("job completed but no summary or message available")
 			}
 
 			return summary, nil
@@ -1013,10 +1201,91 @@ func (s *Service) getAPIClient(profile *models.ConnectionProfile, sourceOrDest s
 	return api.NewClient(url, username, password), nil
 }
 
+// parseImportConflicts extracts and formats detailed conflict information from import summary
+func parseImportConflicts(summary *ImportSummary) string {
+	if summary == nil || len(summary.Conflicts) == 0 {
+		return ""
+	}
+
+	var details []string
+	for i, conflict := range summary.Conflicts {
+		if i >= 10 {
+			details = append(details, fmt.Sprintf("  ... and %d more conflicts", len(summary.Conflicts)-10))
+			break
+		}
+		details = append(details, fmt.Sprintf("  - %s: %s (code: %s)", conflict.Object, conflict.Value, conflict.ErrorCode))
+	}
+
+	return fmt.Sprintf("Import conflicts (%d total):\n%s", len(summary.Conflicts), strings.Join(details, "\n"))
+}
+
+// parseImportMessageCounts extracts import counts from DHIS2 message strings
+// Example: "Import complete with status SUCCESS, 0 created, 0 updated, 0 deleted, 328 ignored"
+func parseImportMessageCounts(message string) (*ImportCount, error) {
+	if message == "" {
+		return nil, fmt.Errorf("empty message")
+	}
+
+	// Regex to match: "(\d+) created, (\d+) updated, (\d+) deleted, (\d+) ignored"
+	re := regexp.MustCompile(`(\d+)\s+created,\s+(\d+)\s+updated,\s+(\d+)\s+deleted,\s+(\d+)\s+ignored`)
+	matches := re.FindStringSubmatch(message)
+
+	if len(matches) != 5 {
+		return nil, fmt.Errorf("could not parse import counts from message: %s", message)
+	}
+
+	// Convert string matches to integers
+	created, _ := strconv.Atoi(matches[1])
+	updated, _ := strconv.Atoi(matches[2])
+	deleted, _ := strconv.Atoi(matches[3])
+	ignored, _ := strconv.Atoi(matches[4])
+
+	return &ImportCount{
+		Imported: created,
+		Updated:  updated,
+		Deleted:  deleted,
+		Ignored:  ignored,
+	}, nil
+}
+
+// retryWithBackoff retries a function up to maxAttempts times with exponential backoff
+// delays: 500ms, 1s, 2s
+func retryWithBackoff(taskID string, operation func() error, maxAttempts int, taskLogger func(taskID, msg string)) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := operation()
+		if err == nil {
+			if attempt > 1 && taskLogger != nil {
+				taskLogger(taskID, fmt.Sprintf("✓ Operation succeeded on retry %d/%d", attempt, maxAttempts))
+			}
+			return nil
+		}
+
+		lastErr = err
+
+		// Don't sleep after last attempt
+		if attempt < maxAttempts {
+			backoffDuration := time.Duration(500*attempt*attempt) * time.Millisecond // 500ms, 2s, 4.5s
+			if taskLogger != nil {
+				taskLogger(taskID, fmt.Sprintf("⚠ Attempt %d/%d failed: %v (retrying in %v)", attempt, maxAttempts, err, backoffDuration))
+			}
+			log.Printf("Task %s: Retry %d/%d after %v: %v", taskID, attempt, maxAttempts, backoffDuration, err)
+			time.Sleep(backoffDuration)
+		} else {
+			if taskLogger != nil {
+				taskLogger(taskID, fmt.Sprintf("✗ All %d attempts failed: %v", maxAttempts, err))
+			}
+			log.Printf("Task %s: All %d attempts failed: %v", taskID, maxAttempts, err)
+		}
+	}
+	return fmt.Errorf("failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
 // updateProgress updates the progress of a transfer task
 func (s *Service) updateProgress(taskID, status string, progress int, message string) {
 	// Update in-memory store and capture messages array
 	var allMessages []string
+
 	s.taskMu.Lock()
 	if p, exists := s.taskStore[taskID]; exists {
 		p.Status = status
@@ -1046,8 +1315,8 @@ func (s *Service) updateProgress(taskID, status string, progress int, message st
 		"task_id":  taskID,
 		"status":   status,
 		"progress": progress,
-		"message":  message,      // Keep latest message for backwards compat
-		"messages": allMessages,  // Add full message array for scrolling log
+		"message":  message,     // Keep latest message for backwards compat
+		"messages": allMessages, // Add full message array for scrolling log
 	})
 
 	log.Printf("[%s] %s (%d%%): %s", taskID, status, progress, message)
@@ -1115,7 +1384,7 @@ func (s *Service) ListOrganisationUnits(profileID string, sourceOrDest string, l
 	// Fetch org units at specified level
 	params := map[string]string{
 		"fields": "id,displayName,name,code,level,path,parent[id]",
-		"filter":  fmt.Sprintf("level:eq:%d", level),
+		"filter": fmt.Sprintf("level:eq:%d", level),
 		"paging": "false",
 		"order":  "displayName:asc", // Sort alphabetically
 	}
@@ -1158,7 +1427,7 @@ func (s *Service) GetOrgUnitChildren(profileID string, sourceOrDest string, pare
 	// Fetch children of the specified parent
 	params := map[string]string{
 		"fields": "id,displayName,name,code,level,path,parent[id]",
-		"filter":  fmt.Sprintf("parent.id:eq:%s", parentID),
+		"filter": fmt.Sprintf("parent.id:eq:%s", parentID),
 		"paging": "false",
 		"order":  "displayName:asc", // Sort alphabetically
 	}
@@ -1252,8 +1521,8 @@ func (s *Service) DiscoverOrgUnitsWithData(profileID string, sourceOrDest string
 	}
 
 	// Discovery calls with children=true can return large payloads (10-100 MB for yearly data)
-	// Increase timeout to allow time for large response body download
-	client.SetTimeout(60 * time.Second)
+	// Increase timeout to allow time for large response body download and slow server processing
+	client.SetTimeout(180 * time.Second)
 
 	// Fetch data values for parent OU and all children
 	params := map[string]string{
@@ -1274,7 +1543,7 @@ func (s *Service) DiscoverOrgUnitsWithData(profileID string, sourceOrDest string
 		// Log the details for debugging
 		log.Printf("[DISCOVERY] HTTP %d for dataset=%s, period=%s, orgUnit=%s: %s",
 			resp.StatusCode(), datasetID, period, parentOU, string(resp.Body()))
-		return make(map[string]string), nil  // Empty map, not an error
+		return make(map[string]string), nil // Empty map, not an error
 	}
 
 	var result struct {
@@ -1409,8 +1678,8 @@ func (s *Service) SkipUnmappedAndComplete(taskID string) error {
 	progress.Messages = append(progress.Messages, "✓ User chose to skip unmapped values")
 	progress.Messages = append(progress.Messages, "🎉 Transfer complete!")
 
-	now := time.Now()
-	progress.CompletedAt = &now
+	now := time.Now().Format(time.RFC3339)
+	progress.CompletedAt = now
 
 	// Update database
 	db := database.GetDB()
@@ -1447,8 +1716,8 @@ func (s *Service) CancelTransfer(taskID string) error {
 	progress.Error = "Transfer cancelled by user"
 	progress.Messages = append(progress.Messages, "✗ Transfer cancelled by user")
 
-	now := time.Now()
-	progress.CompletedAt = &now
+	now := time.Now().Format(time.RFC3339)
+	progress.CompletedAt = now
 
 	// Update database
 	db := database.GetDB()
@@ -1500,4 +1769,3 @@ func (s *Service) RetryWithNewMappings(taskID string, newMappings map[string]str
 	// For now, return error - this needs more context from the original transfer
 	return fmt.Errorf("retry with new mappings not yet fully implemented - requires storing original transfer request")
 }
-

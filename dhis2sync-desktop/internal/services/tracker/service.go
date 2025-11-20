@@ -18,10 +18,10 @@ import (
 
 // Service handles tracker event operations
 type Service struct {
-	db              *gorm.DB
-	ctx             context.Context
-	transferStore   map[string]*TransferProgress
-	transferMu      sync.RWMutex
+	db            *gorm.DB
+	ctx           context.Context
+	transferStore map[string]*TransferProgress
+	transferMu    sync.RWMutex
 }
 
 // NewService creates a new tracker service
@@ -244,6 +244,9 @@ func (s *Service) StartTransfer(req TransferRequest) (string, error) {
 	s.transferStore[taskID] = progress
 	s.transferMu.Unlock()
 
+	// Emit initial state for frontend
+	s.emitTransferEvent(taskID)
+
 	// Run in background goroutine
 	go s.performTransfer(taskID, profile, req)
 
@@ -464,22 +467,25 @@ func (s *Service) finalizeTransfer(taskID string, fetched, sent, batches int, dr
 	}
 	s.transferMu.Unlock()
 
-	runtime.EventsEmit(s.ctx, fmt.Sprintf("tracker:%s", taskID), map[string]interface{}{
-		"task_id": taskID,
-		"status":  "completed",
-	})
+	s.emitTransferEvent(taskID)
 }
 
 func (s *Service) updateProgress(taskID, status string, progress int, message string) {
 	s.transferMu.Lock()
 	defer s.transferMu.Unlock()
 
+	updated := false
 	if p, exists := s.transferStore[taskID]; exists {
 		p.Status = status
 		p.Progress = progress
 		if message != "" {
 			p.Messages = append(p.Messages, message)
 		}
+		updated = true
+	}
+
+	if updated {
+		go s.emitTransferEvent(taskID)
 	}
 }
 
@@ -487,13 +493,49 @@ func (s *Service) appendMessage(taskID, message string) {
 	s.transferMu.Lock()
 	defer s.transferMu.Unlock()
 
+	appended := false
 	if p, exists := s.transferStore[taskID]; exists {
 		p.Messages = append(p.Messages, message)
 		// Trim messages to prevent memory growth
 		if len(p.Messages) > 500 {
 			p.Messages = p.Messages[len(p.Messages)-500:]
 		}
+		appended = true
 	}
+
+	if appended {
+		go s.emitTransferEvent(taskID)
+	}
+}
+
+func (s *Service) emitTransferEvent(taskID string) {
+	s.transferMu.RLock()
+	progress, exists := s.transferStore[taskID]
+	s.transferMu.RUnlock()
+	if !exists {
+		return
+	}
+
+	payload := map[string]interface{}{
+		"task_id":  taskID,
+		"status":   progress.Status,
+		"progress": progress.Progress,
+		"messages": append([]string(nil), progress.Messages...),
+	}
+
+	if len(progress.Messages) > 0 {
+		payload["message"] = progress.Messages[len(progress.Messages)-1]
+	}
+
+	if progress.Results != nil {
+		payload["result"] = progress.Results
+	}
+
+	if progress.CompletedAt != 0 {
+		payload["completed_at"] = progress.CompletedAt
+	}
+
+	runtime.EventsEmit(s.ctx, fmt.Sprintf("tracker:%s", taskID), payload)
 }
 
 // minimalEvent transforms a source event to a minimal payload

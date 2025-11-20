@@ -33,7 +33,7 @@ func NewClient(baseURL, username, password string) *Client {
 	client.http = resty.New().
 		SetHeader("User-Agent", "python-requests/2.31.0"). // Masquerade as Python to avoid DHIS2 client discrimination
 		SetBasicAuth(username, password).
-		SetTimeout(120 * time.Second). // 2 minutes timeout for bulk import operations (1000 values typically take 10-20s)
+		SetTimeout(600 * time.Second). // 10 minutes timeout for slow DHIS2 servers (async operations can take several minutes)
 		SetRetryCount(3).
 		SetRetryWaitTime(500 * time.Millisecond).
 		SetRetryMaxWaitTime(2 * time.Second).

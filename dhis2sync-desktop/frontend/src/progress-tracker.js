@@ -11,10 +11,11 @@ import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
  * ProgressTracker - Manages real-time progress tracking for background tasks
  *
  * Event names used by backend:
- * - "transfer:{taskID}" - Data transfer operations
- * - "tracker:{taskID}" - Tracker event transfers
+ * - "transfer:{taskID}"   - Data transfer operations
+ * - "tracker:{taskID}"    - Tracker event transfers
  * - "assessment:{taskID}" - Completeness assessments
- * - "bulk-action:{taskID}" - Bulk completeness actions
+ * - "metadata:{taskID}"   - Metadata comparisons
+ * - "bulk-action:{taskID}"- Bulk completeness actions
  */
 export class ProgressTracker {
     constructor() {
@@ -25,7 +26,7 @@ export class ProgressTracker {
      * Start tracking a task with real-time event updates
      *
      * @param {string} taskID - Unique task identifier
-     * @param {string} taskType - Type of task: 'transfer', 'tracker', 'assessment', or 'bulk-action'
+     * @param {string} taskType - Type of task: 'transfer', 'tracker', 'assessment', 'metadata', or 'bulk-action'
      * @param {Object} options - Configuration options
      * @param {Function} options.onProgress - Callback(progressData) called on each update
      * @param {Function} options.onComplete - Callback(result) called when task completes
@@ -163,15 +164,23 @@ export class ProgressTracker {
         if (!message) return;
 
         // Create new message element
-        const messageEl = document.createElement('div');
-        messageEl.className = 'small text-muted mb-1';
-        messageEl.textContent = `• ${message}`;
+        const entry = document.createElement('div');
+        entry.className = 'progress-log-entry';
+
+        const dot = document.createElement('span');
+        dot.className = 'progress-log-dot';
+
+        const copy = document.createElement('span');
+        copy.textContent = message;
+
+        entry.appendChild(dot);
+        entry.appendChild(copy);
 
         // Add to container
-        container.appendChild(messageEl);
+        container.appendChild(entry);
 
         // Keep only last 8 messages
-        const messages = container.querySelectorAll('div');
+        const messages = container.querySelectorAll('.progress-log-entry');
         if (messages.length > 8) {
             messages[0].remove();
         }
@@ -187,13 +196,13 @@ export class ProgressTracker {
      */
     createDefaultUI() {
         const wrapper = document.createElement('div');
-        wrapper.className = 'progress-tracker-ui';
+        wrapper.className = 'progress-tracker-ui progress-panel';
 
         const progressContainer = document.createElement('div');
         progressContainer.className = 'progress-tracker-bar';
 
         const messageContainer = document.createElement('div');
-        messageContainer.className = 'progress-tracker-messages';
+        messageContainer.className = 'progress-tracker-messages progress-log';
         messageContainer.style.maxHeight = '200px';
         messageContainer.style.overflowY = 'auto';
 

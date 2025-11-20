@@ -1,0 +1,18 @@
+{
+  "dataSets": [
+    {
+      "id": "ds123",
+      "name": "ANC Dataset",
+      "displayName": "Antenatal Care Dataset",
+      "code": "ANC",
+      "periodType": "Monthly"
+    },
+    {
+      "id": "ds456",
+      "name": "Immunization Dataset",
+      "displayName": "Immunization Coverage Dataset",
+      "code": "IMM",
+      "periodType": "Monthly"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "dataValues": [
+    {
+      "dataElement": "de001",
+      "period": "202501",
+      "orgUnit": "ou001",
+      "categoryOptionCombo": "coc001",
+      "attributeOptionCombo": "aoc001",
+      "value": "100"
+    },
+    {
+      "dataElement": "de002",
+      "period": "202501",
+      "orgUnit": "ou001",
+      "categoryOptionCombo": "coc001",
+      "attributeOptionCombo": "aoc001",
+      "value": "200"
+    }
+  ]
+}

@@ -6,6 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"dhis2sync-desktop/internal/api"
 	"dhis2sync-desktop/internal/crypto"
@@ -16,6 +22,7 @@ import (
 	"dhis2sync-desktop/internal/services/scheduler"
 	"dhis2sync-desktop/internal/services/tracker"
 	"dhis2sync-desktop/internal/services/transfer"
+
 	"gorm.io/gorm"
 )
 
@@ -30,12 +37,14 @@ type App struct {
 	completenessService *completeness.Service
 	trackerService      *tracker.Service
 	schedulerService    *scheduler.Service
+	exportDirectories   map[string]string
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		taskStore: make(map[string]*models.TaskProgress),
+		taskStore:         make(map[string]*models.TaskProgress),
+		exportDirectories: make(map[string]string),
 	}
 }
 
@@ -72,11 +81,28 @@ func (a *App) startup(ctx context.Context) {
 	a.trackerService = tracker.NewService(db, ctx)
 	log.Println("Tracker service initialized")
 
-	a.schedulerService = scheduler.NewService(db, ctx)
+	a.schedulerService = scheduler.NewService(db, ctx, a.completenessService)
 	if err := a.schedulerService.Start(); err != nil {
 		log.Printf("WARNING: Failed to start scheduler: %v", err)
 	} else {
 		log.Println("Scheduler service initialized and started")
+	}
+
+	// Clean up stale jobs from previous sessions
+	log.Println("Cleaning up stale jobs...")
+	staleThreshold := time.Now().Add(-5 * time.Minute)
+	result := a.db.Model(&models.TaskProgress{}).
+		Where("status IN ?", []string{"running", "starting"}).
+		Where("updated_at < ?", staleThreshold).
+		Updates(map[string]interface{}{
+			"status":   "failed",
+			"progress": 0,
+		})
+
+	if result.Error != nil {
+		log.Printf("WARNING: Failed to clean up stale jobs: %v", result.Error)
+	} else if result.RowsAffected > 0 {
+		log.Printf("Marked %d stale jobs as failed", result.RowsAffected)
 	}
 
 	log.Println("Startup complete")
@@ -281,7 +307,22 @@ func (a *App) ListDatasets(profileID string, sourceOrDest string) ([]transfer.Da
 }
 
 // GetDatasetInfo retrieves detailed dataset information
-func (a *App) GetDatasetInfo(profileID string, datasetID string, sourceOrDest string) (*transfer.DatasetInfo, error) {
+func (a *App) GetDatasetInfo(profileIDRaw interface{}, datasetID string, sourceOrDest string) (*transfer.DatasetInfo, error) {
+	var profileID string
+
+	switch v := profileIDRaw.(type) {
+	case string:
+		profileID = v
+	case map[string]interface{}:
+		if id, ok := v["id"].(string); ok {
+			profileID = id
+		} else {
+			return nil, fmt.Errorf("invalid profile object: missing or invalid 'id' field")
+		}
+	default:
+		return nil, fmt.Errorf("invalid profile ID type: expected string or profile object, got %T", profileIDRaw)
+	}
+
 	return a.transferService.GetDatasetInfo(profileID, datasetID, sourceOrDest)
 }
 
@@ -383,7 +424,59 @@ func (a *App) GetCompletenessAssessmentProgress(taskID string) (*completeness.As
 
 // ExportCompletenessResults exports assessment results in JSON or CSV format
 func (a *App) ExportCompletenessResults(taskID, format string, limit int) (string, error) {
-	return a.completenessService.ExportResults(taskID, format, limit)
+	data, err := a.completenessService.ExportResults(taskID, format, limit)
+	if err != nil {
+		return "", err
+	}
+
+	progress, _ := a.completenessService.GetAssessmentProgress(taskID)
+
+	defaultDir := ""
+	if progress != nil && progress.ProfileID != "" {
+		if lastDir, ok := a.exportDirectories[progress.ProfileID]; ok {
+			defaultDir = lastDir
+		}
+	}
+
+	ext := strings.ToLower(format)
+	if ext != "json" && ext != "csv" {
+		return "", fmt.Errorf("unsupported format: %s", format)
+	}
+
+	dialogOptions := runtime.SaveDialogOptions{
+		Title:           fmt.Sprintf("Save completeness results (%s)", strings.ToUpper(ext)),
+		DefaultFilename: fmt.Sprintf("completeness-%s.%s", time.Now().Format("20060102-150405"), ext),
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: strings.ToUpper(ext),
+				Pattern:     fmt.Sprintf("*.%s", ext),
+			},
+		},
+	}
+
+	if defaultDir != "" {
+		dialogOptions.DefaultDirectory = defaultDir
+	}
+
+	savePath, err := runtime.SaveFileDialog(a.ctx, dialogOptions)
+	if err != nil {
+		return "", err
+	}
+
+	if savePath == "" {
+		// User cancelled dialog
+		return "", nil
+	}
+
+	if err := os.WriteFile(savePath, []byte(data), 0644); err != nil {
+		return "", err
+	}
+
+	if progress != nil && progress.ProfileID != "" {
+		a.exportDirectories[progress.ProfileID] = filepath.Dir(savePath)
+	}
+
+	return savePath, nil
 }
 
 // StartCompletenessBulkAction initiates a bulk complete/incomplete action
@@ -451,12 +544,12 @@ func (a *App) DeleteScheduledJob(jobID string) error {
 // JobHistoryResponse represents a completed job in the history
 type JobHistoryResponse struct {
 	TaskID      string  `json:"task_id"`
-	JobType     string  `json:"job_type"`      // "transfer", "completeness", "metadata", "tracker", "bulk_action"
-	Status      string  `json:"status"`        // "completed", "failed", "running"
-	StartedAt   string  `json:"started_at"`    // ISO 8601 timestamp
-	CompletedAt *string `json:"completed_at"`  // ISO 8601 timestamp or null
-	Summary     string  `json:"summary"`       // Brief result description
-	Progress    int     `json:"progress"`      // 0-100
+	JobType     string  `json:"job_type"`     // "transfer", "completeness", "metadata", "tracker", "bulk_action"
+	Status      string  `json:"status"`       // "completed", "failed", "running"
+	StartedAt   string  `json:"started_at"`   // ISO 8601 timestamp
+	CompletedAt *string `json:"completed_at"` // ISO 8601 timestamp or null
+	Summary     string  `json:"summary"`      // Brief result description
+	Progress    int     `json:"progress"`     // 0-100
 }
 
 // CreateProfileRequest represents a request to create/update a connection profile
@@ -555,4 +648,3 @@ func (a *App) TestConnection(req TestConnectionRequest) TestConnectionResponse {
 		UserName: "Connected User",
 	}
 }
-

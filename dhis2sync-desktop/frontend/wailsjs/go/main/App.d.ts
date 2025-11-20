@@ -22,7 +22,7 @@ export function GetCompletenessAssessmentProgress(arg1:string):Promise<completen
 
 export function GetCompletenessBulkActionProgress(arg1:string):Promise<completeness.BulkActionProgress>;
 
-export function GetDatasetInfo(arg1:string,arg2:string,arg3:string):Promise<transfer.DatasetInfo>;
+export function GetDatasetInfo(arg1:any,arg2:string,arg3:string):Promise<transfer.DatasetInfo>;
 
 export function GetMetadataDiffProgress(arg1:string):Promise<metadata.DiffProgress>;
 

@@ -1,3 +1,40 @@
+# Wails
 build/bin
-node_modules
 frontend/dist
+wailsjs/
+
+# Node
+node_modules
+frontend/node_modules
+npm-debug.log
+
+# Go
+go.work
+go.work.sum
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+
+# Binaries (Root level clutter)
+dhis2sync-desktop
+dhis2sync-desktop-*
+app-actually-working
+fixed-timeout
+ou-picker-fixed
+test-*
+test-app-new
+test-build
+test-build-async-fix
+test-debug-logging
+test-transfer-async

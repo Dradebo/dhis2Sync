@@ -1,0 +1,16 @@
+{
+  "status": "SUCCESS",
+  "description": "Import process completed successfully",
+  "importCount": {
+    "imported": 100,
+    "updated": 23,
+    "ignored": 2,
+    "deleted": 0
+  },
+  "conflicts": [
+    {
+      "object": "de003",
+      "value": "Data element not found in destination"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ package completeness
 // AssessmentRequest represents a completeness assessment request
 type AssessmentRequest struct {
 	ProfileID           string   `json:"profile_id"`
-	Instance            string   `json:"instance"`             // "source" or "dest"
+	Instance            string   `json:"instance"` // "source" or "dest"
 	DatasetID           string   `json:"dataset_id"`
 	Periods             []string `json:"periods"`
 	ParentOrgUnits      []string `json:"parent_org_units"`
@@ -15,6 +15,7 @@ type AssessmentRequest struct {
 // AssessmentProgress tracks the progress of a completeness assessment task
 type AssessmentProgress struct {
 	TaskID      string            `json:"task_id"`
+	ProfileID   string            `json:"profile_id,omitempty"`
 	Status      string            `json:"status"`   // starting, running, completed, error
 	Progress    int               `json:"progress"` // 0-100
 	Messages    []string          `json:"messages"`
@@ -24,21 +25,21 @@ type AssessmentProgress struct {
 
 // AssessmentResult contains the overall assessment results
 type AssessmentResult struct {
-	TotalCompliant    int                                `json:"total_compliant"`
-	TotalNonCompliant int                                `json:"total_non_compliant"`
-	TotalErrors       int                                `json:"total_errors"`
-	Hierarchy         map[string]*HierarchyResult        `json:"hierarchy"`          // parentOrgUnitID -> results
-	ComplianceDetails map[string]*OrgUnitComplianceInfo  `json:"compliance_details"` // orgUnitID -> compliance info
+	TotalCompliant    int                               `json:"total_compliant"`
+	TotalNonCompliant int                               `json:"total_non_compliant"`
+	TotalErrors       int                               `json:"total_errors"`
+	Hierarchy         map[string]*HierarchyResult       `json:"hierarchy"`          // parentOrgUnitID -> results
+	ComplianceDetails map[string]*OrgUnitComplianceInfo `json:"compliance_details"` // orgUnitID -> compliance info
 }
 
 // HierarchyResult contains compliance results for a parent org unit hierarchy
 type HierarchyResult struct {
-	Name          string                   `json:"name"`
-	Compliant     []*OrgUnitComplianceInfo `json:"compliant"`
-	NonCompliant  []*OrgUnitComplianceInfo `json:"non_compliant"`
-	Children      []*OrgUnitComplianceInfo `json:"children,omitempty"` // Backward compatibility
-	Unmarked      []*OrgUnitComplianceInfo `json:"unmarked,omitempty"` // Backward compatibility
-	Error         string                   `json:"error,omitempty"`
+	Name         string                   `json:"name"`
+	Compliant    []*OrgUnitComplianceInfo `json:"compliant"`
+	NonCompliant []*OrgUnitComplianceInfo `json:"non_compliant"`
+	Children     []*OrgUnitComplianceInfo `json:"children,omitempty"` // Backward compatibility
+	Unmarked     []*OrgUnitComplianceInfo `json:"unmarked,omitempty"` // Backward compatibility
+	Error        string                   `json:"error,omitempty"`
 }
 
 // OrgUnitComplianceInfo contains detailed compliance information for an org unit
