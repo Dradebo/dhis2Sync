@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -287,6 +288,20 @@ func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, peri
 	for _, parentOU := range parentOrgUnits {
 		parentName := client.GetOrgUnitName(parentOU)
 
+		// Step 1: Fetch the full organisation unit hierarchy (universe of units)
+		// We use the 'path:like' filter to get the parent and all its descendants
+		log.Printf("Fetching hierarchy for parent: %s (%s)", parentName, parentOU)
+		orgUnits, err := s.fetchOrgUnitHierarchy(client, parentOU)
+		if err != nil {
+			log.Printf("Error fetching hierarchy: %v", err)
+			results.TotalErrors++
+			results.Hierarchy[parentOU] = &HierarchyResult{Name: parentName, Error: fmt.Sprintf("Failed to fetch hierarchy: %v", err)}
+			continue
+		}
+		log.Printf("Fetched %d org units in hierarchy for %s", len(orgUnits), parentName)
+
+		// Step 2: Fetch data values for the entire subtree
+		log.Printf("Fetching data values for parent: %s", parentName)
 		resp, err := client.Get("/api/dataValueSets", map[string]string{
 			"dataSet":  datasetID,
 			"orgUnit":  parentOU,
@@ -295,6 +310,7 @@ func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, peri
 		})
 
 		if err != nil {
+			log.Printf("Error fetching data values: %v", err)
 			results.TotalErrors++
 			results.Hierarchy[parentOU] = &HierarchyResult{Name: parentName, Error: err.Error()}
 			continue
@@ -304,6 +320,9 @@ func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, peri
 		json.Unmarshal(resp.Body(), &data)
 
 		dataValues, _ := data["dataValues"].([]interface{})
+		log.Printf("Fetched %d data values for %s", len(dataValues), parentName)
+
+		// Map: OrgUnitID -> DataElementID -> Exists
 		orgUnitData := make(map[string]map[string]bool)
 
 		for _, dv := range dataValues {
@@ -323,16 +342,22 @@ func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, peri
 		compliantUnits := []*OrgUnitComplianceInfo{}
 		nonCompliantUnits := []*OrgUnitComplianceInfo{}
 
-		for ouID, elementsWithData := range orgUnitData {
-			if ouID == parentOU && !includeParents {
+		// Step 3: Iterate over ALL organisation units in the hierarchy
+		for _, ou := range orgUnits {
+			// Skip parent if requested
+			if ou.ID == parentOU && !includeParents {
 				continue
 			}
 
-			ouName := client.GetOrgUnitName(ouID)
+			// Check if this unit has data
+			elementsWithData := orgUnitData[ou.ID]
+
 			presentCount := 0
-			for _, de := range requiredElements {
-				if elementsWithData[de] {
-					presentCount++
+			if elementsWithData != nil {
+				for _, de := range requiredElements {
+					if elementsWithData[de] {
+						presentCount++
+					}
 				}
 			}
 
@@ -342,16 +367,16 @@ func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, peri
 			}
 
 			info := &OrgUnitComplianceInfo{
-				ID:                   ouID,
-				Name:                 ouName,
+				ID:                   ou.ID,
+				Name:                 ou.Name,
 				CompliancePercentage: compliancePercentage,
 				ElementsPresent:      presentCount,
 				ElementsRequired:     len(requiredElements),
-				HasData:              true,
+				HasData:              elementsWithData != nil && len(elementsWithData) > 0,
 				TotalEntries:         len(elementsWithData),
 			}
 
-			results.ComplianceDetails[ouID] = info
+			results.ComplianceDetails[ou.ID] = info
 
 			if compliancePercentage >= float64(threshold) {
 				compliantUnits = append(compliantUnits, info)
@@ -361,6 +386,8 @@ func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, peri
 				results.TotalNonCompliant++
 			}
 		}
+
+		log.Printf("Assessment result for %s: %d compliant, %d non-compliant", parentName, len(compliantUnits), len(nonCompliantUnits))
 
 		results.Hierarchy[parentOU] = &HierarchyResult{
 			Name:         parentName,
@@ -372,6 +399,30 @@ func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, peri
 	}
 
 	return results
+}
+
+// fetchOrgUnitHierarchy fetches the parent org unit and all its descendants
+func (s *Service) fetchOrgUnitHierarchy(client *api.Client, parentID string) ([]models.OrganisationUnit, error) {
+	// Fetch ID, Name, and Level for the subtree
+	resp, err := client.Get("/api/organisationUnits", map[string]string{
+		"filter": fmt.Sprintf("path:like:%s", parentID),
+		"fields": "id,name,level,path",
+		"paging": "false",
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		OrganisationUnits []models.OrganisationUnit `json:"organisationUnits"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse org units: %w", err)
+	}
+
+	return result.OrganisationUnits, nil
 }
 
 func (s *Service) performBulkAction(taskID string, profile *models.ConnectionProfile, req BulkActionRequest) {

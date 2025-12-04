@@ -16,6 +16,7 @@ import { renderStepper, renderSectionState } from './components';
 import { generatePeriods } from './utils/periods';
 import { SchedulerManager } from './components/scheduler';
 import { CompletenessModule } from './completeness_mod.js';
+import { AuditModule } from './audit.js';
 import { DataElementPicker } from './components/data-element-picker';
 
 /**
@@ -35,6 +36,9 @@ class DHIS2SyncApp {
         this.scheduler = new SchedulerManager('scheduler-content');
         this.dataElementPicker = new DataElementPicker('comp-de-picker-container');
         this.completeness = new CompletenessModule(this);
+        this.audit = new AuditModule(this);
+        this.dataOUPicker = null; // Transfer tab org unit picker
+        this.trkOUPicker = null;  // Tracker tab org unit picker
 
         this.init();
     }
@@ -95,23 +99,28 @@ class DHIS2SyncApp {
                 <!-- Navigation Tabs -->
                 <ul class="nav nav-tabs" id="mainTabs" role="tablist">
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="dashboard-tab" data-bs-toggle="tab" data-bs-target="#dashboard-pane" type="button" role="tab" aria-controls="dashboard-pane" aria-selected="true">
-                            <i class="tab-icon bi bi-speedometer2"></i>Dashboard
+                        <button class="nav-link active" id="dashboard-tab" data-bs-toggle="tab" data-bs-target="#dashboard-pane" type="button" role="tab" aria-controls="dashboard-pane" aria-selected="true" aria-label="Dashboard - View recent activity and system status">
+                            <i class="tab-icon bi bi-speedometer2" aria-hidden="true"></i>Dashboard
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings-pane" type="button" role="tab" aria-controls="settings-pane" aria-selected="false">
-                            <i class="tab-icon bi bi-gear"></i>Settings
+                        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings-pane" type="button" role="tab" aria-controls="settings-pane" aria-selected="false" aria-label="Connections - Manage connection profiles and scheduled jobs">
+                            <i class="tab-icon bi bi-hdd-network" aria-hidden="true"></i>Connections
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="transfer-tab" data-bs-toggle="tab" data-bs-target="#transfer-pane" type="button" role="tab" aria-controls="transfer-pane" aria-selected="false">
-                            <i class="tab-icon bi bi-arrow-left-right"></i>Transfer
+                        <button class="nav-link" id="transfer-tab" data-bs-toggle="tab" data-bs-target="#transfer-pane" type="button" role="tab" aria-controls="transfer-pane" aria-selected="false" aria-label="Transfer - Transfer data, metadata, and tracker events">
+                            <i class="tab-icon bi bi-arrow-left-right" aria-hidden="true"></i>Transfer
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="completeness-tab" data-bs-toggle="tab" data-bs-target="#completeness-pane" type="button" role="tab" aria-controls="completeness-pane" aria-selected="false">
-                            <i class="tab-icon bi bi-check-circle"></i>Completeness
+                        <button class="nav-link" id="completeness-tab" data-bs-toggle="tab" data-bs-target="#completeness-pane" type="button" role="tab" aria-controls="completeness-pane" aria-selected="false" aria-label="Completeness - Assess data completeness and quality">
+                            <i class="tab-icon bi bi-check-circle" aria-hidden="true"></i>Completeness
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit-pane" type="button" role="tab" aria-controls="audit-pane" aria-selected="false" aria-label="Audit - Check for missing metadata before transfer">
+                            <i class="tab-icon bi bi-shield-check" aria-hidden="true"></i>Audit
                         </button>
                     </li>
                 </ul>
@@ -187,6 +196,11 @@ class DHIS2SyncApp {
                     ${settingsHtml}
                     ${transferHtml}
                     ${completenessHtml}
+                    
+                    <!-- Audit Tab -->
+                    <div class="tab-pane fade" id="audit-pane" role="tabpanel" aria-labelledby="audit-tab">
+                        ${this.audit.render()}
+                    </div>
                 </div>
             </div>
         `;
@@ -386,6 +400,13 @@ class DHIS2SyncApp {
                                                     <i class="bi bi-arrow-repeat me-1"></i>Refresh Dataset Info
                                                 </button>
                                             </div>
+                                        </div>
+
+                                        <!-- Org Unit Selection -->
+                                        <div class="mb-4">
+                                            <label class="form-label">Organization Units (Optional)</label>
+                                            <div id="data-ou-picker-container" class="border rounded p-2 bg-light"></div>
+                                            <div class="form-text small">Leave empty to transfer all accessible organization units.</div>
                                         </div>
 
                                         <!-- Step 2: Period Selection (hidden initially) -->
@@ -741,6 +762,8 @@ class DHIS2SyncApp {
                     this.loadTransferTab();
                 } else if (target === '#completeness-pane') {
                     this.loadCompletenessTab();
+                } else if (target === '#audit-pane') {
+                    this.loadAuditTab();
                 }
             });
         });
@@ -793,6 +816,40 @@ class DHIS2SyncApp {
             this.scheduler.setProfile(this.currentProfile.id);
             // Load and render jobs
             await this.scheduler.loadJobs();
+        }
+    }
+
+    /**
+     * Initialize org unit picker for Transfer tab
+     */
+    async initTransferOUPicker() {
+        if (this.dataOUPicker) {
+            // Already initialized
+            return;
+        }
+
+        if (!this.currentProfile) {
+            console.warn('[Transfer] No profile selected, skipping OU picker initialization');
+            return;
+        }
+
+        try {
+            // Dynamically import the OrgUnitTreePicker component
+            const { OrgUnitTreePicker } = await import('./components/org-unit-tree.js');
+
+            // Initialize the picker with correct parameters: (containerId, profileId, instance)
+            this.dataOUPicker = new OrgUnitTreePicker(
+                'data-ou-picker-container',
+                this.currentProfile.id,
+                'source'
+            );
+
+            // Call initialize() to render the picker
+            await this.dataOUPicker.initialize();
+
+            console.log('[Transfer] Org unit picker initialized');
+        } catch (error) {
+            console.error('[Transfer] Failed to initialize org unit picker:', error);
         }
     }
 
@@ -874,6 +931,9 @@ class DHIS2SyncApp {
     async selectProfile(id) {
         try {
             await window.go.main.App.SelectProfile(id);
+
+            // Fetch profiles to get the selected one
+            const profiles = await App.ListProfiles();
             this.currentProfile = profiles.find(p => String(p.id) === String(id));
 
             if (!this.currentProfile) {
@@ -887,18 +947,14 @@ class DHIS2SyncApp {
                 console.warn('Scheduler instance not found!');
             }
 
+            // Update UI
             this.updateUIForProfile();
+            await this.loadProfiles(); // Reload to show active state
 
-            // Force reload of profiles list to update active state UI
-            // Force reload of profiles list to update active state UI
-            await this.loadProfiles();
-
-            // Show toast
-            toast.success(`Profile "${this.currentProfile.name}" selected`);
+            toast.success(`Profile "${this.currentProfile.name}" activated`);
         } catch (err) {
             console.error("Failed to select profile:", err);
-            alert(`Error selecting profile: ${err}`);
-            toast.error("Failed to select profile");
+            toast.error(`Failed to select profile: ${err.message || err}`);
         }
     }
 
@@ -984,17 +1040,22 @@ class DHIS2SyncApp {
             const jobs = await App.ListJobs(10); // Get last 10 jobs
 
             if (!jobs || jobs.length === 0) {
-                // No jobs yet - show placeholder
+                // Enhanced empty state
                 container.innerHTML = `
-            <div class="text-center py-5 text-muted" >
-                        <i class="bi bi-inbox fs-1 mb-3"></i>
-                        <h6>No jobs yet</h6>
-                        <p>Configure your settings and run your first sync to see job history here.</p>
-                        <button class="btn btn-primary" onclick="app.switchToTab('settings-tab')">
-                            <i class="bi bi-gear me-1"></i>Configure Settings
-                        </button>
+                    <div class="text-center py-5">
+                        <i class="bi bi-inbox text-muted" style="font-size: 4rem;"></i>
+                        <h4 class="mt-3 mb-2">No Jobs Yet</h4>
+                        <p class="text-muted mb-4">Your job history will appear here once you start running transfers, audits, or completeness checks.</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button class="btn btn-outline-primary" onclick="app.switchToTab('settings-tab')">
+                                <i class="bi bi-hdd-network me-2"></i>Configure Connection
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="app.switchToTab('transfer-tab')">
+                                <i class="bi bi-arrow-left-right me-2"></i>Start Transfer
+                            </button>
+                        </div>
                     </div>
-            `;
+                `;
                 return;
             }
 
@@ -1137,7 +1198,23 @@ class DHIS2SyncApp {
             const datasets = await App.ListDatasets(this.currentProfile.id, 'source');
 
             if (!datasets || datasets.length === 0) {
-                datasetSelect.innerHTML = '<option value="">No datasets found</option>';
+                datasetSelect.innerHTML = '<option value="">No datasets available</option>';
+
+                // Show empty state message
+                const transferContent = document.getElementById('data-transfer-content');
+                if (transferContent) {
+                    const emptyState = `
+                        <div class="text-center py-5">
+                            <i class="bi bi-database text-muted" style="font-size: 4rem;"></i>
+                            <h4 class="mt-3 mb-2">No Datasets Available</h4>
+                            <p class="text-muted mb-4">No datasets were found in the source instance. Please check your connection or contact your DHIS2 administrator.</p>
+                            <button class="btn btn-outline-primary" onclick="app.switchToTab('settings-tab')">
+                                <i class="bi bi-hdd-network me-2"></i>Check Connection
+                            </button>
+                        </div>
+                    `;
+                    transferContent.insertAdjacentHTML('afterbegin', emptyState);
+                }
                 return;
             }
 
@@ -1164,6 +1241,9 @@ class DHIS2SyncApp {
                 });
                 datasetSelect.dataset.listenerAdded = 'true';
             }
+
+            // Initialize org unit picker for Transfer tab
+            await this.initTransferOUPicker();
 
         } catch (error) {
             console.error('Failed to load datasets:', error);
@@ -1489,7 +1569,11 @@ class DHIS2SyncApp {
             return;
         }
 
-        // No org unit selection needed - they will be auto-discovered
+        // Get selected org units from picker (if any)
+        let selectedOrgUnits = [];
+        if (this.dataOUPicker) {
+            selectedOrgUnits = this.dataOUPicker.getSelectedOrgUnits();
+        }
 
         if (!this.currentProfile) {
             toast.error('No profile selected');
@@ -1502,13 +1586,17 @@ class DHIS2SyncApp {
                 startBtn.disabled = true;
             }
 
-            toast.info('Starting transfer with auto-discovery...');
+            if (selectedOrgUnits.length > 0) {
+                toast.info(`Starting transfer for ${selectedOrgUnits.length} selected org unit(s)...`);
+            } else {
+                toast.info('Starting transfer with auto-discovery (all accessible org units)...');
+            }
 
             // Get checkbox value for marking datasets complete
             const markCompleteCheckbox = document.getElementById('mark-complete-checkbox');
             const markComplete = markCompleteCheckbox ? markCompleteCheckbox.checked : false;
 
-            // Build transfer request (no org_units - auto-discovered from user's assigned OUs)
+            // Build transfer request
             const aocSelect = document.getElementById('attribute-option-combo');
             const request = {
                 profile_id: this.currentProfile.id,
@@ -1518,6 +1606,11 @@ class DHIS2SyncApp {
                 mark_complete: markComplete,
                 attribute_option_combo_id: aocSelect?.value || ''
             };
+
+            // Add org units if selected (otherwise backend uses auto-discovery)
+            if (selectedOrgUnits.length > 0) {
+                request.org_units = selectedOrgUnits;
+            }
 
             const taskId = await App.StartTransfer(request);
 
@@ -2582,6 +2675,15 @@ class DHIS2SyncApp {
     }
 
     /**
+     * Load Audit tab - initialize audit module
+     */
+    async loadAuditTab() {
+        if (this.audit) {
+            await this.audit.init();
+        }
+    }
+
+    /**
      * Initialize org unit picker for Completeness tab
      */
     async initCompletenessOUPicker() {
@@ -3365,5 +3467,11 @@ class DHIS2SyncApp {
 // Initialize the application when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
     window.app = new DHIS2SyncApp();
+
+    // Hide loading screen after app initializes
+    const loadingScreen = document.getElementById('app-loading');
+    if (loadingScreen) {
+        loadingScreen.style.display = 'none';
+    }
 });
 

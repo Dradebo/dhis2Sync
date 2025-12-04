@@ -108,11 +108,11 @@ func (s *Service) GetDatasetInfo(profileID string, datasetID string, sourceOrDes
 
 	// Unmarshal into intermediate struct to handle DHIS2's dataSetElements wrapper
 	var apiResponse struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		DisplayName string `json:"displayName"`
-		Code        string `json:"code"`
-		PeriodType  string `json:"periodType"`
+		ID              string `json:"id"`
+		Name            string `json:"name"`
+		DisplayName     string `json:"displayName"`
+		Code            string `json:"code"`
+		PeriodType      string `json:"periodType"`
 		DataSetElements []struct {
 			DataElement DataElement `json:"dataElement"`
 		} `json:"dataSetElements"`
@@ -143,6 +143,207 @@ func (s *Service) GetDatasetInfo(profileID string, datasetID string, sourceOrDes
 	}
 
 	return datasetInfo, nil
+}
+
+// GetOrgUnitTree fetches org unit hierarchy for selection UI
+func (s *Service) GetOrgUnitTree(profileID, sourceOrDest, rootID string, maxDepth int) (*OrgUnitTreeResponse, error) {
+	// Get profile from database
+	db := database.GetDB()
+	var profile models.ConnectionProfile
+	if err := db.Where("id = ?", profileID).First(&profile).Error; err != nil {
+		return nil, fmt.Errorf("profile not found: %w", err)
+	}
+
+	// Create API client
+	client, err := s.getAPIClient(&profile, sourceOrDest)
+	if err != nil {
+		return nil, err
+	}
+
+	// If no rootID provided, get user's root org units
+	var rootOrgUnits []OrganisationUnit
+	if rootID == "" {
+		// Fetch user's assigned org units
+		resp, err := client.Get("api/me.json", map[string]string{
+			"fields": "organisationUnits[id,name,displayName,code,level,path]",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch user org units: %w", err)
+		}
+
+		var userInfo struct {
+			OrganisationUnits []OrganisationUnit `json:"organisationUnits"`
+		}
+		if err := json.Unmarshal(resp.Body(), &userInfo); err != nil {
+			return nil, fmt.Errorf("failed to parse user info: %w", err)
+		}
+
+		rootOrgUnits = userInfo.OrganisationUnits
+	} else {
+		// Fetch specific org unit
+		resp, err := client.Get(fmt.Sprintf("api/organisationUnits/%s.json", rootID), map[string]string{
+			"fields": "id,name,displayName,code,level,path",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch org unit: %w", err)
+		}
+
+		var ou OrganisationUnit
+		if err := json.Unmarshal(resp.Body(), &ou); err != nil {
+			return nil, fmt.Errorf("failed to parse org unit: %w", err)
+		}
+
+		rootOrgUnits = []OrganisationUnit{ou}
+	}
+
+	// Build tree nodes
+	treeNodes := make([]OrgUnitTreeNode, 0, len(rootOrgUnits))
+	totalCount := 0
+
+	for _, rootOU := range rootOrgUnits {
+		node, count := s.buildOrgUnitTreeNode(client, rootOU, 0, maxDepth)
+		treeNodes = append(treeNodes, node)
+		totalCount += count
+	}
+
+	return &OrgUnitTreeResponse{
+		RootNodes:  treeNodes,
+		TotalCount: totalCount,
+	}, nil
+}
+
+// buildOrgUnitTreeNode recursively builds org unit tree node
+func (s *Service) buildOrgUnitTreeNode(client *api.Client, ou OrganisationUnit, currentDepth, maxDepth int) (OrgUnitTreeNode, int) {
+	node := OrgUnitTreeNode{
+		ID:          ou.ID,
+		Name:        ou.Name,
+		DisplayName: ou.DisplayName,
+		Code:        ou.Code,
+		Level:       ou.Level,
+		Path:        ou.Path,
+		Children:    []OrgUnitTreeNode{},
+	}
+
+	count := 1 // Count this node
+
+	// Stop if max depth reached
+	if maxDepth > 0 && currentDepth >= maxDepth {
+		node.HasChildren = false
+		return node, count
+	}
+
+	// Fetch children
+	resp, err := client.Get("api/organisationUnits.json", map[string]string{
+		"filter": fmt.Sprintf("parent.id:eq:%s", ou.ID),
+		"fields": "id,name,displayName,code,level,path",
+		"paging": "false",
+	})
+
+	if err != nil {
+		node.HasChildren = false
+		return node, count
+	}
+
+	var result struct {
+		OrganisationUnits []OrganisationUnit `json:"organisationUnits"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+		node.HasChildren = false
+		return node, count
+	}
+
+	node.HasChildren = len(result.OrganisationUnits) > 0
+
+	// Recursively build children if not at max depth
+	if maxDepth == 0 || currentDepth < maxDepth-1 {
+		for _, childOU := range result.OrganisationUnits {
+			childNode, childCount := s.buildOrgUnitTreeNode(client, childOU, currentDepth+1, maxDepth)
+			node.Children = append(node.Children, childNode)
+			count += childCount
+		}
+	}
+
+	return node, count
+}
+
+// GetOrgUnitsByLevel fetches org units at a specific level
+func (s *Service) GetOrgUnitsByLevel(profileID, sourceOrDest string, level int) ([]OrganisationUnit, error) {
+	// Get profile from database
+	db := database.GetDB()
+	var profile models.ConnectionProfile
+	if err := db.Where("id = ?", profileID).First(&profile).Error; err != nil {
+		return nil, fmt.Errorf("profile not found: %w", err)
+	}
+
+	// Create API client
+	client, err := s.getAPIClient(&profile, sourceOrDest)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch org units at specified level
+	resp, err := client.Get("api/organisationUnits.json", map[string]string{
+		"filter": fmt.Sprintf("level:eq:%d", level),
+		"fields": "id,name,displayName,code,level,path",
+		"paging": "false",
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch org units: %w", err)
+	}
+
+	var result struct {
+		OrganisationUnits []OrgUnit `json:"organisationUnits"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return result.OrganisationUnits, nil
+}
+
+// SearchOrgUnits searches for org units by name
+func (s *Service) SearchOrgUnits(profileID, sourceOrDest, query string, limit int) ([]OrganisationUnit, error) {
+	// Get profile from database
+	db := database.GetDB()
+	var profile models.ConnectionProfile
+	if err := db.Where("id = ?", profileID).First(&profile).Error; err != nil {
+		return nil, fmt.Errorf("profile not found: %w", err)
+	}
+
+	// Create API client
+	client, err := s.getAPIClient(&profile, sourceOrDest)
+	if err != nil {
+		return nil, err
+	}
+
+	if limit <= 0 {
+		limit = 50 // Default limit
+	}
+
+	// Search org units by name
+	params := map[string]string{
+		"filter":   fmt.Sprintf("name:ilike:%s", query),
+		"fields":   "id,name,displayName,code,level,path",
+		"pageSize": fmt.Sprintf("%d", limit),
+	}
+
+	resp, err := client.Get("api/organisationUnits.json", params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search org units: %w", err)
+	}
+
+	var result struct {
+		OrganisationUnits []OrgUnit `json:"organisationUnits"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return result.OrganisationUnits, nil
 }
 
 // StartTransfer initiates a data transfer operation in the background
@@ -260,184 +461,209 @@ func (s *Service) performTransfer(taskID string, req TransferRequest) {
 	}
 	s.updateProgress(taskID, "running", 15, fmt.Sprintf("Using root org unit: %s (%s)", rootOU.Name, rootOU.ID))
 
-	// Discover all org units with data across all periods
-	s.updateProgress(taskID, "running", 20, "Discovering organization units with data...")
-	allDiscoveredOUs := make(map[string]string)
+	// PHASE 1: Smart Batching Transfer Strategy
+	// Iterate by Period -> Discover OUs -> Process per OU
+	// This ensures we don't OOM on large datasets and provides granular progress
 
-	totalPeriods := len(req.Periods)
-	for i, period := range req.Periods {
-		// Progress: 20-30% distributed across all periods
-		periodProgress := 20 + (10 * i / totalPeriods)
-		s.updateProgress(taskID, "running", periodProgress, fmt.Sprintf("Discovering org units for period %s...", period))
-
-		discoveredOUs, err := s.DiscoverOrgUnitsWithData(req.ProfileID, "source", req.SourceDatasetID, period, rootOU.ID)
-		if err != nil {
-			s.updateProgress(taskID, "error", 0, fmt.Sprintf("Failed to discover org units for period %s: %v", period, err))
-			return
-		}
-
-		// Merge discovered OUs
-		for ouID, ouName := range discoveredOUs {
-			allDiscoveredOUs[ouID] = ouName
-		}
-
-		periodProgressEnd := 20 + (10 * (i + 1) / totalPeriods)
-		s.updateProgress(taskID, "running", periodProgressEnd,
-			fmt.Sprintf("Found %d org units with data for period %s", len(discoveredOUs), period))
-	}
-
-	if len(allDiscoveredOUs) == 0 {
-		s.updateProgress(taskID, "completed", 100, "No organization units found with data for the selected periods")
-		return
-	}
-
-	s.updateProgress(taskID, "running", 30, fmt.Sprintf("Total: %d unique org units with data across all periods", len(allDiscoveredOUs)))
-
-	// PHASE 1: Fetch and accumulate ALL data values before import (bulk strategy)
-	s.updateProgress(taskID, "running", 35, "Fetching data from source (bulk accumulation)...")
-
-	totalOUs := len(allDiscoveredOUs)
+	// Initialize aggregate import stats
+	var totalImported, totalUpdated, totalIgnored, totalDeleted int
 	processedOUs := 0
 	notFoundOUs := []string{}
-
-	// Accumulate all data values for bulk import
-	allMappedValues := []DataValue{}
 
 	// Track successful transfers for batched completeness marking
 	// Map key: "destOUID:period", value: sourceOUName
 	successfulTransfers := make(map[string]string)
 
-	for sourceOUID, sourceOUName := range allDiscoveredOUs {
-		processedOUs++
-		progressPct := 35 + (35 * processedOUs / totalOUs) // 35-70% for fetching
-		s.updateProgress(taskID, "running", progressPct, fmt.Sprintf("Fetching %d/%d: %s (%s)", processedOUs, totalOUs, sourceOUName, sourceOUID))
+	totalPeriods := len(req.Periods)
+	if totalPeriods == 0 {
+		s.updateProgress(taskID, "completed", 100, "No periods selected for transfer")
+		return
+	}
 
-		// Find matching org unit in destination
-		destOUID, err := s.FindMatchingOrgUnit(req.ProfileID, sourceOUID, sourceOUName)
+	// Define a chunk size for progress updates within the OU loop
+	// We allocate 80% of progress bar to the transfer phase (20% was setup)
+	periodProgressChunk := 80 / totalPeriods
+
+	for i, period := range req.Periods {
+		// Update progress for the current period
+		currentPeriodProgress := 20 + (i * periodProgressChunk)
+		s.updateProgress(taskID, "running", currentPeriodProgress, fmt.Sprintf("Processing period %s...", period))
+
+		// 1. Discover Org Units with Data (Smart Batching)
+		// This prevents fetching massive payloads by breaking it down by Org Unit
+		s.updateProgress(taskID, "running", currentPeriodProgress, fmt.Sprintf("Scanning for data in period %s...", period))
+
+		// Discover OUs with data for the current period, under the root OU
+		discoveredOUs, err := s.DiscoverOrgUnitsWithData(req.ProfileID, "source", req.SourceDatasetID, period, rootOU.ID)
 		if err != nil {
-			s.updateProgress(taskID, "running", progressPct,
-				fmt.Sprintf("✗ No matching org unit found in destination\n  Source: %s (%s)\n  Reason: %v", sourceOUName, sourceOUID, err))
-			notFoundOUs = append(notFoundOUs, sourceOUName)
+			s.updateProgress(taskID, "running", currentPeriodProgress, fmt.Sprintf("⚠ Failed to scan period %s: %v", period, err))
 			continue
 		}
 
-		// Fetch data for ALL periods for this org unit
-		for _, period := range req.Periods {
-			params := map[string]string{
-				"dataSet":  req.SourceDatasetID,
-				"orgUnit":  sourceOUID,
-				"period":   period,
-				"children": "true",  // mirror FastAPI behavior of including children
-				"paging":   "false", // ensure we always get full result set
+		if len(discoveredOUs) == 0 {
+			s.updateProgress(taskID, "running", currentPeriodProgress, fmt.Sprintf("No data found for period %s", period))
+			continue
+		}
+
+		s.updateProgress(taskID, "running", currentPeriodProgress, fmt.Sprintf("Found %d org units with data for period %s", len(discoveredOUs), period))
+
+		// 2. Process each Org Unit
+		ouIdx := 0
+		for ouID, ouName := range discoveredOUs {
+			ouIdx++
+			processedOUs++
+
+			// Check if this OU is skipped by resolution BEFORE fetching
+			// (Optimization: don't fetch if we know we'll skip it)
+			skipOU := false
+			for _, res := range req.Resolutions {
+				if res.Type == "orgUnit" && res.ID == ouID && res.Action == "skip" {
+					skipOU = true
+					break
+				}
 			}
-			if req.AttributeOptionComboID != "" {
-				params["attributeOptionCombo"] = req.AttributeOptionComboID
+			if skipOU {
+				log.Printf("Skipping org unit %s (%s) based on user resolution", ouName, ouID)
+				continue
 			}
 
-			resp, err := sourceClient.Get("api/dataValueSets", params)
+			// Update progress periodically
+			if ouIdx%5 == 0 {
+				batchProgress := currentPeriodProgress + int(float64(ouIdx)/float64(len(discoveredOUs))*float64(periodProgressChunk))
+				s.updateProgress(taskID, "running", batchProgress, fmt.Sprintf("Processing %s (%d/%d)...", ouName, ouIdx, len(discoveredOUs)))
+			}
+
+			// Find matching org unit in destination
+			destOUID, err := s.FindMatchingOrgUnit(req.ProfileID, ouID, ouName)
 			if err != nil {
-				s.updateProgress(taskID, "running", progressPct,
-					fmt.Sprintf("⚠ Failed to fetch data from source\n  OU: %s (%s)\n  Period: %s\n  Error: %v",
-						sourceOUName, sourceOUID, period, err))
+				// Log warning but don't fail entire transfer
+				log.Printf("No matching org unit found in destination for %s (%s): %v", ouName, ouID, err)
+				notFoundOUs = append(notFoundOUs, ouName)
+				continue
+			}
+
+			// Fetch data for this specific Org Unit (children=false)
+			dvParams := map[string]string{
+				"dataSet":        req.SourceDatasetID,
+				"period":         period,
+				"orgUnit":        ouID,
+				"children":       "false", // specific OU only
+				"includeDeleted": "false",
+			}
+			if req.AttributeOptionComboID != "" {
+				dvParams["attributeOptionCombo"] = req.AttributeOptionComboID
+			}
+
+			resp, err := sourceClient.Get("api/dataValueSets", dvParams)
+			if err != nil {
+				log.Printf("Failed to fetch data for OU %s: %v", ouID, err)
 				continue
 			}
 
 			if !resp.IsSuccess() {
-				s.updateProgress(taskID, "running", progressPct,
-					fmt.Sprintf("⚠ Source API returned HTTP %d for %s/%s: %s",
-						resp.StatusCode(), sourceOUName, period, string(resp.Body())))
+				log.Printf("Source API returned HTTP %d for %s/%s", resp.StatusCode(), ouName, period)
 				continue
 			}
 
-			var sourceData DataValueSet
-			if err := json.Unmarshal(resp.Body(), &sourceData); err != nil {
-				s.updateProgress(taskID, "running", progressPct,
-					fmt.Sprintf("⚠ Failed to parse source data\n  OU: %s (%s)\n  Period: %s\n  Error: %v",
-						sourceOUName, sourceOUID, period, err))
+			var dvPayload DataValueSet
+			if err := json.Unmarshal(resp.Body(), &dvPayload); err != nil {
+				log.Printf("Failed to parse source data for %s: %v", ouName, err)
 				continue
 			}
 
-			if len(sourceData.DataValues) == 0 {
-				continue // Skip empty data silently during accumulation
+			if len(dvPayload.DataValues) == 0 {
+				continue
 			}
 
-			// Update org unit + period in values to match destination (required for Format 2)
-			for i := range sourceData.DataValues {
-				sourceData.DataValues[i].OrgUnit = destOUID
-				sourceData.DataValues[i].Period = period // Explicitly set period on each value
+			// Update org unit + period in values to match destination
+			for i := range dvPayload.DataValues {
+				dvPayload.DataValues[i].OrgUnit = destOUID
+				dvPayload.DataValues[i].Period = period
 			}
 
 			// Apply element mapping if provided
-			mappedValues, unmappedValues := s.applyMapping(sourceData.DataValues, req.ElementMapping)
+			mappedValues, unmappedValues := s.applyMapping(dvPayload.DataValues, req.ElementMapping)
 
-			// Track unmapped values for final report
+			// Track unmapped values
 			if len(unmappedValues) > 0 {
 				s.taskMu.Lock()
 				if progress, exists := s.taskStore[taskID]; exists {
 					if progress.UnmappedValues == nil {
 						progress.UnmappedValues = make(map[string][]DataValue)
 					}
-					key := fmt.Sprintf("%s:%s", sourceOUName, period)
+					key := fmt.Sprintf("%s:%s", ouName, period)
 					progress.UnmappedValues[key] = unmappedValues
+					// We don't pause anymore, just log/store
 				}
 				s.taskMu.Unlock()
 			}
 
 			if len(mappedValues) == 0 {
-				continue // Skip if no mappable data
+				continue
 			}
 
-			// ACCUMULATE instead of immediate import
-			allMappedValues = append(allMappedValues, mappedValues...)
+			// 3. Sanitize / Apply Resolutions
+			sanitizedValues, skippedCount := s.applyResolutions(mappedValues, req.Resolutions)
 
-			// Log per-period fetch result for user visibility
-			s.updateProgress(taskID, "running", progressPct,
-				fmt.Sprintf("  ✓ Fetched %d values for period %s", len(mappedValues), period))
+			if skippedCount > 0 {
+				log.Printf("Skipped %d values for OU %s based on resolutions", skippedCount, ouName)
+			}
+
+			if len(sanitizedValues) == 0 {
+				continue
+			}
+
+			// 4. Import to Destination
+			// Use Bulk Async for performance (chunk size 1000)
+
+			// Calculate progress range for this specific OU
+			// We map the import function's 0-100% progress to this OU's slice of the global progress
+			ouStartProgress := float64(currentPeriodProgress) + (float64(ouIdx-1)/float64(len(discoveredOUs)))*float64(periodProgressChunk)
+			ouEndProgress := float64(currentPeriodProgress) + (float64(ouIdx)/float64(len(discoveredOUs)))*float64(periodProgressChunk)
+			progressRange := ouEndProgress - ouStartProgress
+
+			onProgress := func(p float64, msg string) {
+				// If p is negative, it means "indeterminate progress" or "just update message"
+				// We keep the current progress value (which is roughly the start of this OU's chunk + whatever we last set)
+				// But to be safe, we just use the start progress if we don't track state here.
+				// Actually, let's just use ouStartProgress for message-only updates if we can't track it.
+				// Better: if p < 0, we don't update the percentage, just the message.
+				// But s.updateProgress requires a percentage.
+				// So we'll calculate the percentage based on p if p >= 0.
+
+				var newProgress int
+				if p >= 0 {
+					// Map 0.0-1.0 to ouStartProgress-ouEndProgress
+					newProgress = int(ouStartProgress + (p * progressRange))
+				} else {
+					// Keep "current" progress - effectively just update message
+					// We use a safe approximation: midway through the chunk or just the start
+					newProgress = int(ouStartProgress + (0.5 * progressRange))
+				}
+
+				s.updateProgress(taskID, "running", newProgress, msg)
+			}
+
+			summaries, err := s.importDataValuesBulkAsync(destClient, sanitizedValues, 1000, onProgress)
+			if err != nil {
+				s.updateProgress(taskID, "running", int(ouEndProgress), fmt.Sprintf("⚠ Import failed for %s: %v", ouName, err))
+				continue
+			}
+
+			// Aggregate stats
+			for _, summary := range summaries {
+				totalImported += summary.ImportCount.Imported
+				totalUpdated += summary.ImportCount.Updated
+				totalIgnored += summary.ImportCount.Ignored
+				totalDeleted += summary.ImportCount.Deleted
+			}
 
 			// Track for completeness marking
 			if req.MarkComplete {
 				transferKey := fmt.Sprintf("%s:%s", destOUID, period)
-				successfulTransfers[transferKey] = sourceOUName
+				successfulTransfers[transferKey] = ouName
 			}
 		}
-	}
-
-	s.updateProgress(taskID, "running", 70, fmt.Sprintf("✓ Fetched %d total data values from %d org units", len(allMappedValues), totalOUs))
-
-	// PHASE 2: Bulk import all accumulated data values
-	var totalImported, totalUpdated, totalIgnored, totalDeleted int
-
-	if len(allMappedValues) > 0 {
-		s.updateProgress(taskID, "running", 72, fmt.Sprintf("Importing %d data values via async mode (500 values per chunk)...", len(allMappedValues)))
-
-		summaries, err := s.importDataValuesBulkAsync(destClient, allMappedValues, 500, taskID) // Async mode: 500 values per chunk (balances throughput with server processing time)
-		if err != nil {
-			s.updateProgress(taskID, "error", 72, fmt.Sprintf("✗ Bulk import failed: %v", err))
-			return
-		}
-
-		// Aggregate all chunk summaries
-		for _, summary := range summaries {
-			totalImported += summary.ImportCount.Imported
-			totalUpdated += summary.ImportCount.Updated
-			totalIgnored += summary.ImportCount.Ignored
-			totalDeleted += summary.ImportCount.Deleted
-		}
-
-		// Build friendly message that handles "ignored" values gracefully
-		var bulkMsg string
-		if totalIgnored > 0 && totalImported == 0 && totalUpdated == 0 {
-			bulkMsg = fmt.Sprintf("✓ Bulk import complete: %d values already exist (ignored)", totalIgnored)
-		} else if totalIgnored > 0 {
-			bulkMsg = fmt.Sprintf("✓ Bulk import complete: %d new, %d updated, %d already exist", totalImported, totalUpdated, totalIgnored)
-		} else {
-			bulkMsg = fmt.Sprintf("✓ Bulk import complete: %d new, %d updated", totalImported, totalUpdated)
-		}
-
-		s.updateProgress(taskID, "running", 95, bulkMsg)
-	} else {
-		s.updateProgress(taskID, "completed", 100, "No data values to import after mapping")
-		return
 	}
 
 	// Persist aggregate import summary so the frontend (and future sessions) can inspect results
@@ -593,10 +819,10 @@ func (s *Service) performTransfer(taskID string, req TransferRequest) {
 		msg = fmt.Sprintf("🎉 Transfer complete! All %d values already exist in destination (no changes needed)", totalIgnored)
 	} else if totalIgnored > 0 {
 		msg = fmt.Sprintf("🎉 Transfer complete! Processed: %d org units, %d new, %d updated, %d already exist, %d not found",
-			totalOUs, totalImported, totalUpdated, totalIgnored, len(notFoundOUs))
+			processedOUs, totalImported, totalUpdated, totalIgnored, len(notFoundOUs))
 	} else {
 		msg = fmt.Sprintf("🎉 Transfer complete! Processed: %d org units, %d new, %d updated, %d not found",
-			totalOUs, totalImported, totalUpdated, len(notFoundOUs))
+			processedOUs, totalImported, totalUpdated, len(notFoundOUs))
 	}
 	s.updateProgress(taskID, "completed", 100, msg)
 
@@ -648,6 +874,64 @@ func (s *Service) applyMapping(dataValues []DataValue, mapping map[string]string
 	}
 
 	return mapped, unmapped // Return both lists separately
+}
+
+// applyResolutions applies user-defined resolutions (skip/map) to data values
+func (s *Service) applyResolutions(dataValues []DataValue, resolutions []Resolution) ([]DataValue, int) {
+	if len(resolutions) == 0 {
+		return dataValues, 0
+	}
+
+	// Build lookup maps for fast access
+	ouActions := make(map[string]string)  // ID -> Action
+	cocActions := make(map[string]string) // ID -> Action
+
+	for _, res := range resolutions {
+		if res.Type == "orgUnit" {
+			ouActions[res.ID] = res.Action
+		} else if res.Type == "coc" {
+			cocActions[res.ID] = res.Action
+		}
+	}
+
+	sanitized := []DataValue{}
+	skippedCount := 0
+
+	for _, dv := range dataValues {
+		// Check OrgUnit Resolution
+		if action, ok := ouActions[dv.OrgUnit]; ok {
+			if action == "skip" {
+				skippedCount++
+				continue
+			} else if strings.HasPrefix(action, "map:") {
+				dv.OrgUnit = strings.TrimPrefix(action, "map:")
+			}
+		}
+
+		// Check COC Resolution
+		if action, ok := cocActions[dv.CategoryOptionCombo]; ok {
+			if action == "skip" {
+				skippedCount++
+				continue
+			} else if strings.HasPrefix(action, "map:") {
+				dv.CategoryOptionCombo = strings.TrimPrefix(action, "map:")
+			}
+		}
+
+		// Check AttributeOptionCombo Resolution (if applicable, though usually same as COC logic)
+		if action, ok := cocActions[dv.AttributeOptionCombo]; ok {
+			if action == "skip" {
+				skippedCount++
+				continue
+			} else if strings.HasPrefix(action, "map:") {
+				dv.AttributeOptionCombo = strings.TrimPrefix(action, "map:")
+			}
+		}
+
+		sanitized = append(sanitized, dv)
+	}
+
+	return sanitized, skippedCount
 }
 
 // importDataValues sends data values to destination, chunking large payloads to avoid timeouts
@@ -750,7 +1034,7 @@ func (s *Service) importDataValuesChunk(client *api.Client, dataValues []DataVal
 // importDataValuesBulk sends bulk data values to DHIS2 using Format 2 (recommended)
 // This method is 300x-900x faster than Format 1 for large datasets (hundreds of org units)
 // Implements chunking and concurrent requests for optimal performance
-func (s *Service) importDataValuesBulk(client *api.Client, allDataValues []DataValue, chunkSize int, taskID string) ([]*ImportSummary, error) {
+func (s *Service) importDataValuesBulk(client *api.Client, allDataValues []DataValue, chunkSize int, onProgress func(progress float64, message string)) ([]*ImportSummary, error) {
 	if len(allDataValues) == 0 {
 		return nil, fmt.Errorf("no data values to import")
 	}
@@ -821,11 +1105,13 @@ func (s *Service) importDataValuesBulk(client *api.Client, allDataValues []DataV
 			log.Printf("✓ Chunk %d/%d complete: imported=%d, updated=%d, ignored=%d",
 				chunkNum+1, numChunks, summary.ImportCount.Imported, summary.ImportCount.Updated, summary.ImportCount.Ignored)
 
-			// Update UI progress
-			progressPct := 72 + (23 * (chunkNum + 1) / numChunks) // 72-95%
-			s.updateProgress(taskID, "running", progressPct,
-				fmt.Sprintf("✓ Completed chunk %d/%d (imported=%d, updated=%d)",
+			// Update UI progress via callback
+			// Progress is 0.0 to 1.0 relative to this import operation
+			progressPct := float64(chunkNum+1) / float64(numChunks)
+			if onProgress != nil {
+				onProgress(progressPct, fmt.Sprintf("✓ Completed chunk %d/%d (imported=%d, updated=%d)",
 					chunkNum+1, numChunks, summary.ImportCount.Imported, summary.ImportCount.Updated))
+			}
 
 			// Store summary
 			summariesMu.Lock()
@@ -856,7 +1142,7 @@ func (s *Service) importDataValuesBulk(client *api.Client, allDataValues []DataV
 // This is THE RECOMMENDED approach for large imports (>1000 values)
 // Uses async=true parameter to avoid connection timeouts during server processing
 // Returns after ALL async jobs complete successfully
-func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []DataValue, chunkSize int, taskID string) ([]*ImportSummary, error) {
+func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []DataValue, chunkSize int, onProgress func(progress float64, message string)) ([]*ImportSummary, error) {
 	if len(allDataValues) == 0 {
 		return nil, fmt.Errorf("no data values to import")
 	}
@@ -870,7 +1156,9 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 	numChunks := (totalValues + chunkSize - 1) / chunkSize
 
 	log.Printf("Async bulk import: %d total values, %d chunks of ~%d values each", totalValues, numChunks, chunkSize)
-	s.updateProgress(taskID, "running", 72, fmt.Sprintf("Submitting %d async import jobs to DHIS2...", numChunks))
+	if onProgress != nil {
+		onProgress(0.0, fmt.Sprintf("Submitting %d async import jobs to DHIS2...", numChunks))
+	}
 
 	// Submit all chunks as async jobs (returns immediately)
 	type asyncJob struct {
@@ -901,7 +1189,7 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 		// POST with async=true and preheatCache=true (with retry logic)
 		var resp []byte
 
-		retryErr := retryWithBackoff(taskID, func() error {
+		retryErr := retryWithBackoff("async_submit", func() error {
 			r, e := client.Post("api/dataValueSets?async=true&preheatCache=true", payload)
 			if e != nil {
 				return e
@@ -912,7 +1200,9 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 			resp = r.Body()
 			return nil
 		}, 3, func(tid, msg string) {
-			s.updateProgress(tid, "running", 72, fmt.Sprintf("Chunk %d/%d: %s", chunkIdx+1, numChunks, msg))
+			if onProgress != nil {
+				onProgress(0.1, fmt.Sprintf("Chunk %d/%d: %s", chunkIdx+1, numChunks, msg))
+			}
 		})
 
 		if retryErr != nil {
@@ -956,7 +1246,9 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 		return nil, fmt.Errorf("%d job submissions failed: %v", len(submissionErrors), submissionErrors[0])
 	}
 
-	s.updateProgress(taskID, "running", 75, fmt.Sprintf("✓ Submitted %d async jobs, polling for completion...", len(submittedJobs)))
+	if onProgress != nil {
+		onProgress(0.2, fmt.Sprintf("✓ Submitted %d async jobs, polling for completion...", len(submittedJobs)))
+	}
 
 	// Poll all jobs for completion (with concurrency limit)
 	summaries := make([]*ImportSummary, 0, len(submittedJobs))
@@ -979,11 +1271,12 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 			defer func() { <-sem }()
 
 			// Log job polling start for user visibility
-			s.updateProgress(taskID, "running", 75,
-				fmt.Sprintf("⏳ Polling job %d/%d (%d values)...", j.ChunkNum, numChunks, j.NumValues))
+			if onProgress != nil {
+				// Don't update message here to avoid spamming, just log
+			}
 
 			// Poll this job until completion (with retry logic)
-			summary, err := s.pollAsyncJobWithRetry(client, j.JobID, j.ChunkNum, numChunks, taskID)
+			summary, err := s.pollAsyncJobWithRetry(client, j.JobID, j.ChunkNum, numChunks, onProgress)
 			if err != nil {
 				errChan <- fmt.Errorf("job %d (ID=%s) failed: %w", j.ChunkNum, j.JobID, err)
 				return
@@ -992,12 +1285,14 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 			// Update progress
 			completedMu.Lock()
 			completedCount++
-			progressPct := 75 + (20 * completedCount / len(submittedJobs)) // 75-95%
+			// Progress from 0.2 to 1.0
+			progressPct := 0.2 + (0.8 * float64(completedCount) / float64(len(submittedJobs)))
 			completedMu.Unlock()
 
-			s.updateProgress(taskID, "running", progressPct,
-				fmt.Sprintf("✓ Completed %d/%d async jobs (imported=%d, updated=%d)",
+			if onProgress != nil {
+				onProgress(progressPct, fmt.Sprintf("✓ Completed %d/%d async jobs (imported=%d, updated=%d)",
 					completedCount, len(submittedJobs), summary.ImportCount.Imported, summary.ImportCount.Updated))
+			}
 
 			// Store summary
 			summariesMu.Lock()
@@ -1026,22 +1321,42 @@ func (s *Service) importDataValuesBulkAsync(client *api.Client, allDataValues []
 }
 
 // pollAsyncJobWithRetry wraps pollAsyncJob with retry logic for network failures
-func (s *Service) pollAsyncJobWithRetry(client *api.Client, jobID string, chunkNum, totalChunks int, taskID string) (*ImportSummary, error) {
-	maxRetries := 3
+func (s *Service) pollAsyncJobWithRetry(client *api.Client, jobID string, chunkNum, totalChunks int, onProgress func(progress float64, message string)) (*ImportSummary, error) {
+	// "Watch Football" mode: retry for a very long time (approx 8 hours if max backoff is 30s)
+	maxRetries := 1000
+	backoff := 2 * time.Second
+	maxBackoff := 30 * time.Second
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		summary, err := s.pollAsyncJob(client, jobID, chunkNum, totalChunks, taskID)
+		summary, err := s.pollAsyncJob(client, jobID, chunkNum, totalChunks, onProgress)
 		if err == nil {
 			return summary, nil
 		}
 
 		// Log retry attempt
 		if attempt < maxRetries {
-			log.Printf("Poll attempt %d/%d failed for job %d/%d (ID=%s): %v (retrying in 5s...)",
-				attempt, maxRetries, chunkNum, totalChunks, jobID, err)
-			s.updateProgress(taskID, "running", 75,
-				fmt.Sprintf("⚠ Job %d/%d polling failed (attempt %d/%d), retrying...",
-					chunkNum, totalChunks, attempt, maxRetries))
-			time.Sleep(5 * time.Second)
+			log.Printf("Poll attempt %d/%d failed for job %d/%d (ID=%s): %v (retrying in %v...)",
+				attempt, maxRetries, chunkNum, totalChunks, jobID, err, backoff)
+
+			// Only update UI every 5th retry to avoid spamming
+			if (attempt%5 == 0 || attempt == 1) && onProgress != nil {
+				// We don't know the exact progress percentage here, so we just send a message
+				// The caller (importDataValuesBulkAsync) manages the percentage
+				// We can pass -1.0 to indicate "no change in percentage" if we wanted, but onProgress expects float64
+				// Let's just not call onProgress for retries to keep it simple, or call it with a dummy value if needed.
+				// Actually, the caller ignores the percentage if we don't have it? No, it expects it.
+				// But we are inside a loop in the caller that sets progress based on completed jobs.
+				// So we shouldn't mess with the percentage here.
+				// We can just log it.
+			}
+
+			time.Sleep(backoff)
+
+			// Exponential backoff
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 			continue
 		}
 
@@ -1052,7 +1367,7 @@ func (s *Service) pollAsyncJobWithRetry(client *api.Client, jobID string, chunkN
 }
 
 // pollAsyncJob polls a single DHIS2 async job until completion or failure
-func (s *Service) pollAsyncJob(client *api.Client, jobID string, chunkNum, totalChunks int, taskID string) (*ImportSummary, error) {
+func (s *Service) pollAsyncJob(client *api.Client, jobID string, chunkNum, totalChunks int, onProgress func(progress float64, message string)) (*ImportSummary, error) {
 	endpoint := fmt.Sprintf("api/system/tasks/DATAVALUE_IMPORT/%s", jobID)
 	maxAttempts := 300 // 300 × 2s = 10 minutes max per job
 	pollInterval := 2 * time.Second
@@ -1143,8 +1458,10 @@ func (s *Service) pollAsyncJob(client *api.Client, jobID string, chunkNum, total
 			elapsedSeconds := attempt * 2
 			log.Printf("Job %d/%d still running after %d seconds...", chunkNum, totalChunks, elapsedSeconds)
 			// Update UI to show job is still processing
-			s.updateProgress(taskID, "running", 75,
-				fmt.Sprintf("⏳ Job %d/%d still processing (%d seconds elapsed)...", chunkNum, totalChunks, elapsedSeconds))
+			// Update UI to show job is still processing
+			if onProgress != nil {
+				onProgress(-1.0, fmt.Sprintf("⏳ Job %d/%d still processing (%d seconds elapsed)...", chunkNum, totalChunks, elapsedSeconds))
+			}
 		}
 
 		time.Sleep(pollInterval)
@@ -1346,19 +1663,6 @@ func (s *Service) unmarshalMessages(messagesJSON string) []string {
 	var messages []string
 	json.Unmarshal([]byte(messagesJSON), &messages)
 	return messages
-}
-
-// OrgUnit represents a DHIS2 organization unit
-type OrgUnit struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-	Name        string `json:"name"`
-	Code        string `json:"code,omitempty"`
-	Level       int    `json:"level"`
-	Path        string `json:"path"`
-	Parent      *struct {
-		ID string `json:"id"`
-	} `json:"parent,omitempty"`
 }
 
 // ListOrganisationUnits retrieves org units at a specific level or roots (level 1)

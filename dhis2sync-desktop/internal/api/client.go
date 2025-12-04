@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -16,8 +15,7 @@ type Client struct {
 	username  string
 	password  string
 	http      *resty.Client
-	nameCache map[string]string // Cache for org unit names
-	cacheMu   sync.RWMutex
+	nameCache *lruCache // LRU cache for org unit names (bounded memory)
 }
 
 // NewClient creates a new DHIS2 API client
@@ -26,7 +24,7 @@ func NewClient(baseURL, username, password string) *Client {
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		username:  username,
 		password:  password,
-		nameCache: make(map[string]string),
+		nameCache: newLRUCache(10000), // Max 10k org unit names
 	}
 
 	// Configure resty client
@@ -89,12 +87,10 @@ func (c *Client) Put(endpoint string, payload interface{}) (*resty.Response, err
 
 // GetOrgUnitName retrieves the name of an organization unit (with caching)
 func (c *Client) GetOrgUnitName(orgUnitID string) string {
-	c.cacheMu.RLock()
-	if name, exists := c.nameCache[orgUnitID]; exists {
-		c.cacheMu.RUnlock()
+	// Check cache first
+	if name, exists := c.nameCache.Get(orgUnitID); exists {
 		return name
 	}
-	c.cacheMu.RUnlock()
 
 	// Fetch from API
 	endpoint := fmt.Sprintf("api/organisationUnits/%s.json", orgUnitID)
@@ -103,9 +99,7 @@ func (c *Client) GetOrgUnitName(orgUnitID string) string {
 	resp, err := c.Get(endpoint, params)
 	if err != nil || !resp.IsSuccess() {
 		// Fallback to ID if fetch fails
-		c.cacheMu.Lock()
-		c.nameCache[orgUnitID] = orgUnitID
-		c.cacheMu.Unlock()
+		c.nameCache.Put(orgUnitID, orgUnitID)
 		return orgUnitID
 	}
 
@@ -115,9 +109,7 @@ func (c *Client) GetOrgUnitName(orgUnitID string) string {
 	}
 
 	if err := json.Unmarshal(resp.Body(), &result); err != nil {
-		c.cacheMu.Lock()
-		c.nameCache[orgUnitID] = orgUnitID
-		c.cacheMu.Unlock()
+		c.nameCache.Put(orgUnitID, orgUnitID)
 		return orgUnitID
 	}
 
@@ -129,10 +121,7 @@ func (c *Client) GetOrgUnitName(orgUnitID string) string {
 		name = orgUnitID
 	}
 
-	c.cacheMu.Lock()
-	c.nameCache[orgUnitID] = name
-	c.cacheMu.Unlock()
-
+	c.nameCache.Put(orgUnitID, name)
 	return name
 }
 

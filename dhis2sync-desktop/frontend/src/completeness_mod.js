@@ -30,6 +30,12 @@ export class CompletenessModule {
         // Results state
         this.lastResults = null;
         this.selectedResultOUs = new Set();
+
+        // OU Tree Cache - profile-specific
+        this.ouCache = {}; // Format: { profileId_instance_parentId: [...nodes] }
+        this.currentProfileId = null;
+        this.ouTreeFullyLoaded = false;
+        this.ouLoadingProgress = { loaded: 0, total: 0 };
     }
 
     /**
@@ -38,10 +44,19 @@ export class CompletenessModule {
     async init() {
         console.log('[Completeness] Initializing...');
 
+        // Check if profile changed - clear cache if so
+        const newProfileId = this.app.currentProfile?.id;
+        if (newProfileId !== this.currentProfileId) {
+            console.log('[Completeness] Profile changed, clearing OU cache');
+            this.ouCache = {};
+            this.currentProfileId = newProfileId;
+            this.ouTreeFullyLoaded = false;
+        }
+
         // Load datasets for currently selected instance
         await this.loadDatasets();
 
-        // Load OU tree
+        // Load OU tree (full hierarchy)
         await this.loadOUTreeRoot();
 
         // Setup event listeners
@@ -80,10 +95,6 @@ export class CompletenessModule {
 
                 try {
                     console.log('[Completeness] Loading dataset info', datasetId);
-                    console.log('[Completeness] DEBUG: Calling GetDatasetInfo');
-                    console.log('[Completeness] DEBUG: this.app.currentProfile:', this.app.currentProfile);
-                    console.log('[Completeness] DEBUG: this.app.currentProfile.id:', this.app.currentProfile ? this.app.currentProfile.id : 'undefined');
-                    console.log('[Completeness] DEBUG: Type of id:', typeof (this.app.currentProfile ? this.app.currentProfile.id : 'undefined'));
 
                     // Use dynamic profile ID (backend now handles string or object)
                     const info = await App.GetDatasetInfo(this.app.currentProfile.id, datasetId, this.currentInstance);
@@ -219,20 +230,108 @@ export class CompletenessModule {
     }
 
     /**
-     * Load root org units
+     * Load root org units with full hierarchy preload
      */
     async loadOUTreeRoot() {
         const tree = document.getElementById('comp_ou_tree');
         if (!tree) return;
 
-        tree.innerHTML = '<div class="text-muted small">Loading...</div>';
+        const cacheKey = `${this.currentProfileId}_${this.currentInstance}_root`;
+
+        // Check if already fully loaded
+        if (this.ouTreeFullyLoaded && this.ouCache[cacheKey]) {
+            console.log('[Completeness] Loading OU tree from cache (fully loaded)');
+            tree.innerHTML = this.renderOUTreeNodes(this.ouCache[cacheKey]);
+            return;
+        }
+
+        // Show loading animation with progress
+        this.ouLoadingProgress = { loaded: 0, total: 0 };
+        tree.innerHTML = `
+            <div class="d-flex flex-column align-items-center text-primary py-4" id="ou-loading-indicator">
+                <div class="spinner-border mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="fw-bold mb-1">Loading Full Organization Hierarchy</div>
+                <span class="small text-muted" id="ou-loading-text">Fetching organization units...</span>
+                <small class="text-muted mt-2">Please wait while we load all units for instant access</small>
+            </div>
+        `;
 
         try {
+            // Load root nodes
             const roots = await this.app.listOrgUnits('', this.currentInstance);
+            this.ouCache[cacheKey] = roots;
+
+            // Update progress
+            this.ouLoadingProgress.loaded = roots.length;
+            this.updateLoadingProgress();
+
+            // Recursively load all children
+            await this.loadOUTreeRecursive(roots);
+
+            // Mark as fully loaded
+            this.ouTreeFullyLoaded = true;
+
+            // Render the complete tree
             tree.innerHTML = this.renderOUTreeNodes(roots);
+            console.log('[Completeness] Full OU tree loaded and cached');
         } catch (error) {
             console.error('[Completeness] Failed to load OU tree', error);
             tree.innerHTML = `<div class="text-danger small">${error.message}</div>`;
+        }
+    }
+
+    /**
+     * Recursively load all children in the org unit tree
+     */
+    async loadOUTreeRecursive(nodes) {
+        if (!nodes || nodes.length === 0) return;
+
+        // Process nodes sequentially to avoid overwhelming the API
+        for (const node of nodes) {
+            // Check if node has children (either hasChildren flag or children array)
+            const hasKids = node.hasChildren || (node.children && node.children.length > 0);
+
+            if (hasKids) {
+                const cacheKey = `${this.currentProfileId}_${this.currentInstance}_${node.id}`;
+
+                // Skip if already cached
+                if (this.ouCache[cacheKey]) {
+                    console.log(`[Completeness] Skipping ${node.displayName || node.id} - already cached`);
+                    await this.loadOUTreeRecursive(this.ouCache[cacheKey]);
+                    continue;
+                }
+
+                try {
+                    console.log(`[Completeness] Loading children for: ${node.displayName || node.id}`);
+
+                    // Load children
+                    const children = await this.app.listOrgUnits(node.id, this.currentInstance);
+                    this.ouCache[cacheKey] = children;
+
+                    // Update progress
+                    this.ouLoadingProgress.loaded += children.length;
+                    this.updateLoadingProgress();
+
+                    console.log(`[Completeness] Loaded ${children.length} children for ${node.displayName || node.id}`);
+
+                    // Recursively load grandchildren
+                    await this.loadOUTreeRecursive(children);
+                } catch (error) {
+                    console.error(`[Completeness] Failed to load children for ${node.id}`, error);
+                }
+            }
+        }
+    }
+
+    /**
+     * Update loading progress indicator
+     */
+    updateLoadingProgress() {
+        const textEl = document.getElementById('ou-loading-text');
+        if (textEl) {
+            textEl.textContent = `Loaded ${this.ouLoadingProgress.loaded} organization units...`;
         }
     }
 
@@ -274,7 +373,7 @@ export class CompletenessModule {
     }
 
     /**
-     * Toggle OU tree node expansion
+     * Toggle OU tree node expansion (instant with preloaded data)
      */
     async toggleOUTree(ouId, event) {
         if (event && event.preventDefault) event.preventDefault();
@@ -292,9 +391,34 @@ export class CompletenessModule {
             return;
         }
 
-        // Load children
+        const cacheKey = `${this.currentProfileId}_${this.currentInstance}_${ouId}`;
+
+        // Check cache (should already be loaded if tree was preloaded)
+        if (this.ouCache[cacheKey]) {
+            console.log('[Completeness] Loading OU children from cache (instant)');
+            container.innerHTML = this.renderOUTreeNodes(this.ouCache[cacheKey]);
+            container.setAttribute('data-loaded', '1');
+            container.style.display = 'block';
+            const icon = document.querySelector(`[data-ou-icon='${ouId}']`);
+            if (icon) icon.className = 'bi bi-caret-down-fill';
+            return;
+        }
+
+        // Fallback: load on demand if not in cache (shouldn't happen with preload)
+        console.warn('[Completeness] OU children not in cache, loading on demand');
+        container.innerHTML = `
+            <div class="d-flex align-items-center text-muted py-1">
+                <div class="spinner-border spinner-border-sm me-2" style="width: 1rem; height: 1rem;" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <small>Loading...</small>
+            </div>
+        `;
+        container.style.display = 'block';
+
         try {
             const children = await this.app.listOrgUnits(ouId, this.currentInstance);
+            this.ouCache[cacheKey] = children;
             container.innerHTML = this.renderOUTreeNodes(children);
             container.setAttribute('data-loaded', '1');
             container.style.display = 'block';
@@ -560,7 +684,14 @@ export class CompletenessModule {
         if (!resultsDiv) return;
 
         if (!results || !results.org_units || results.org_units.length === 0) {
-            resultsDiv.innerHTML = '<div class="text-muted small">No results to display</div>';
+            resultsDiv.innerHTML = `
+                <div class="text-center py-5">
+                    <i class="bi bi-clipboard-check text-muted" style="font-size: 4rem;"></i>
+                    <h4 class="mt-3 mb-2">No Results Yet</h4>
+                    <p class="text-muted mb-4">Run a completeness assessment to see data quality metrics and compliance status for your organization units.</p>
+                    <small class="text-muted">Configure your dataset, periods, and organization units above, then click "Run Assessment".</small>
+                </div>
+            `;
             return;
         }
 

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 var encryptionKey []byte
@@ -23,21 +25,19 @@ func InitEncryption() error {
 	// Try environment variable first (development/testing)
 	keyString := os.Getenv("ENCRYPTION_KEY")
 	if keyString != "" {
-		// Decode base64 key if provided, or hash the raw string to get 32 bytes
-		keyBytes, err := base64.StdEncoding.DecodeString(keyString)
-		if err != nil {
-			// If decoding fails, use SHA256 hash of the string
-			hash := sha256.Sum256([]byte(keyString))
-			encryptionKey = hash[:]
-		} else {
-			// Use decoded key, ensure it's 32 bytes (AES-256)
-			if len(keyBytes) != 32 {
-				hash := sha256.Sum256(keyBytes)
-				encryptionKey = hash[:]
-			} else {
-				encryptionKey = keyBytes
-			}
-		}
+		// Use PBKDF2 for proper key derivation
+		// Version-specific salt to allow future key rotation
+		salt := []byte("dhis2sync-v1-2024")
+		iterations := 100000 // OWASP recommended minimum
+		keyLength := 32      // AES-256
+
+		encryptionKey = pbkdf2.Key(
+			[]byte(keyString),
+			salt,
+			iterations,
+			keyLength,
+			sha256.New,
+		)
 		return nil
 	}
 

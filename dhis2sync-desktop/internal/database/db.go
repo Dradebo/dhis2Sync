@@ -5,7 +5,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"dhis2sync-desktop/internal/models"
 
@@ -72,6 +74,29 @@ func Init() (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// Configure connection pool
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database instance: %w", err)
+	}
+
+	// Set connection pool parameters (configurable via environment variables)
+	maxOpenConns := getEnvInt("DB_MAX_OPEN_CONNS", 25)
+	maxIdleConns := getEnvInt("DB_MAX_IDLE_CONNS", 5)
+	connMaxLifetime := getEnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute)
+
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+
+	log.Printf("Database connection pool configured: max_open=%d, max_idle=%d, max_lifetime=%v",
+		maxOpenConns, maxIdleConns, connMaxLifetime)
+
+	// Health check
+	if err := sqlDB.Ping(); err != nil {
+		return nil, fmt.Errorf("database ping failed: %w", err)
+	}
+
 	// Auto-migrate models
 	if err := AutoMigrate(DB); err != nil {
 		return nil, fmt.Errorf("failed to auto-migrate: %w", err)
@@ -79,6 +104,26 @@ func Init() (*gorm.DB, error) {
 
 	log.Println("Database initialized successfully")
 	return DB, nil
+}
+
+// getEnvInt retrieves an integer from environment variable with default fallback
+func getEnvInt(key string, defaultValue int) int {
+	if val := os.Getenv(key); val != "" {
+		if intVal, err := strconv.Atoi(val); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
+// getEnvDuration retrieves a duration from environment variable with default fallback
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		if duration, err := time.ParseDuration(val); err == nil {
+			return duration
+		}
+	}
+	return defaultValue
 }
 
 // AutoMigrate runs GORM auto-migration for all models

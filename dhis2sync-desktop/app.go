@@ -17,6 +17,7 @@ import (
 	"dhis2sync-desktop/internal/crypto"
 	"dhis2sync-desktop/internal/database"
 	"dhis2sync-desktop/internal/models"
+	"dhis2sync-desktop/internal/services/audit"
 	"dhis2sync-desktop/internal/services/completeness"
 	"dhis2sync-desktop/internal/services/metadata"
 	"dhis2sync-desktop/internal/services/scheduler"
@@ -37,6 +38,7 @@ type App struct {
 	completenessService *completeness.Service
 	trackerService      *tracker.Service
 	schedulerService    *scheduler.Service
+	auditService        *audit.Service
 	exportDirectories   map[string]string
 }
 
@@ -81,6 +83,9 @@ func (a *App) startup(ctx context.Context) {
 	a.trackerService = tracker.NewService(db, ctx)
 	log.Println("Tracker service initialized")
 
+	a.auditService = audit.NewService(ctx)
+	log.Println("Audit service initialized")
+
 	a.schedulerService = scheduler.NewService(db, ctx, a.completenessService)
 	if err := a.schedulerService.Start(); err != nil {
 		log.Printf("WARNING: Failed to start scheduler: %v", err)
@@ -106,6 +111,22 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	log.Println("Startup complete")
+}
+
+// ... (existing methods) ...
+
+// ====================================================================================
+// AUDIT SERVICE OPERATIONS
+// ====================================================================================
+
+// StartAudit initiates a background audit
+func (a *App) StartAudit(profileID string, datasetID string, periods []string) (string, error) {
+	return a.auditService.StartAudit(profileID, datasetID, periods)
+}
+
+// GetAuditProgress retrieves audit progress
+func (a *App) GetAuditProgress(taskID string) (*audit.AuditProgress, error) {
+	return a.auditService.GetAuditProgress(taskID)
 }
 
 // shutdown is called when the app is closing
@@ -328,6 +349,11 @@ func (a *App) GetDatasetInfo(profileIDRaw interface{}, datasetID string, sourceO
 
 // StartTransfer initiates a data transfer operation
 func (a *App) StartTransfer(req transfer.TransferRequest) (string, error) {
+	// Validate request
+	if err := transfer.ValidateTransferRequest(&req); err != nil {
+		return "", fmt.Errorf("validation failed: %w", err)
+	}
+
 	return a.transferService.StartTransfer(req)
 }
 
@@ -356,6 +382,21 @@ func (a *App) ResolveUnmappedValues(taskID string, action string, newMappings ma
 	default:
 		return errors.New("invalid action: must be 'create_mappings', 'skip_unmapped', or 'cancel'")
 	}
+}
+
+// GetOrgUnitTree retrieves org unit hierarchy for transfer selection
+func (a *App) GetOrgUnitTree(profileID, sourceOrDest, rootID string, maxDepth int) (*transfer.OrgUnitTreeResponse, error) {
+	return a.transferService.GetOrgUnitTree(profileID, sourceOrDest, rootID, maxDepth)
+}
+
+// GetOrgUnitsByLevel retrieves org units at a specific level
+func (a *App) GetOrgUnitsByLevel(profileID, sourceOrDest string, level int) ([]transfer.OrgUnit, error) {
+	return a.transferService.GetOrgUnitsByLevel(profileID, sourceOrDest, level)
+}
+
+// SearchOrgUnits searches for org units by name
+func (a *App) SearchOrgUnits(profileID, sourceOrDest, query string, limit int) ([]transfer.OrgUnit, error) {
+	return a.transferService.SearchOrgUnits(profileID, sourceOrDest, query, limit)
 }
 
 // ListOrganisationUnits lists org units at a specific level or roots (level 1)

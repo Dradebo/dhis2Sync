@@ -22,6 +22,10 @@ export function ExportCompletenessResults(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportCompletenessResults'](arg1, arg2, arg3);
 }
 
+export function GetAuditProgress(arg1) {
+  return window['go']['main']['App']['GetAuditProgress'](arg1);
+}
+
 export function GetCompletenessAssessmentProgress(arg1) {
   return window['go']['main']['App']['GetCompletenessAssessmentProgress'](arg1);
 }
@@ -48,6 +52,14 @@ export function GetMetadataSummary(arg1, arg2) {
 
 export function GetOrgUnitChildren(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetOrgUnitChildren'](arg1, arg2, arg3);
+}
+
+export function GetOrgUnitTree(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetOrgUnitTree'](arg1, arg2, arg3, arg4);
+}
+
+export function GetOrgUnitsByLevel(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetOrgUnitsByLevel'](arg1, arg2, arg3);
 }
 
 export function GetProfile(arg1) {
@@ -114,8 +126,16 @@ export function SaveMetadataMappings(arg1, arg2) {
   return window['go']['main']['App']['SaveMetadataMappings'](arg1, arg2);
 }
 
+export function SearchOrgUnits(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SearchOrgUnits'](arg1, arg2, arg3, arg4);
+}
+
 export function SelectProfile(arg1) {
   return window['go']['main']['App']['SelectProfile'](arg1);
+}
+
+export function StartAudit(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartAudit'](arg1, arg2, arg3);
 }
 
 export function StartCompletenessAssessment(arg1) {

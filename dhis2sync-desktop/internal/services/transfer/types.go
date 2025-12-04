@@ -2,14 +2,23 @@ package transfer
 
 // TransferRequest represents a request to transfer data between DHIS2 instances
 type TransferRequest struct {
-	ProfileID       string   `json:"profile_id"`
-	SourceDatasetID string   `json:"source_dataset"`
-	DestDatasetID   string   `json:"dest_dataset"` // Can be different if mapping is needed
-	Periods         []string `json:"periods"`      // e.g., ["202401", "202402"]
-	// OrgUnits are auto-discovered from user's assigned org units - no manual selection needed
-	ElementMapping         map[string]string `json:"element_mapping"` // source element ID -> dest element ID
-	MarkComplete           bool              `json:"mark_complete"`   // Mark dataset as complete after transfer
+	ProfileID              string            `json:"profile_id"`
+	SourceDatasetID        string            `json:"source_dataset"`
+	DestDatasetID          string            `json:"dest_dataset"`            // Can be different if mapping is needed
+	Periods                []string          `json:"periods"`                 // e.g., ["202401", "202402"]
+	OrgUnitSelectionMode   string            `json:"org_unit_selection_mode"` // "all", "selected", "discovered"
+	OrgUnitIDs             []string          `json:"org_unit_ids"`            // Used when mode is "selected"
+	ElementMapping         map[string]string `json:"element_mapping"`         // source element ID -> dest element ID
+	Resolutions            []Resolution      `json:"resolutions"`             // User-defined resolutions for missing items
+	MarkComplete           bool              `json:"mark_complete"`           // Mark dataset as complete after transfer
 	AttributeOptionComboID string            `json:"attribute_option_combo_id"`
+}
+
+// Resolution represents a user decision for a missing item
+type Resolution struct {
+	ID     string `json:"id"`     // Source ID (OU or COC)
+	Type   string `json:"type"`   // "orgUnit" or "coc"
+	Action string `json:"action"` // "skip", "map:<targetID>"
 }
 
 // Dataset represents a DHIS2 dataset
@@ -66,6 +75,9 @@ type OrganisationUnit struct {
 	Level       int    `json:"level"`
 	Path        string `json:"path"`
 }
+
+// OrgUnit is an alias for OrganisationUnit for convenience
+type OrgUnit = OrganisationUnit
 
 // DataValue represents a single data value in DHIS2
 type DataValue struct {
@@ -190,4 +202,22 @@ type CompletionResponse struct {
 	Updated  int    `json:"updated"`
 	Ignored  int    `json:"ignored"`
 	Deleted  int    `json:"deleted"`
+}
+
+// OrgUnitTreeNode represents a node in the org unit hierarchy tree
+type OrgUnitTreeNode struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	DisplayName string            `json:"displayName"`
+	Code        string            `json:"code"`
+	Level       int               `json:"level"`
+	Path        string            `json:"path"`
+	HasChildren bool              `json:"has_children"`
+	Children    []OrgUnitTreeNode `json:"children,omitempty"`
+}
+
+// OrgUnitTreeResponse represents the response for org unit tree fetching
+type OrgUnitTreeResponse struct {
+	RootNodes  []OrgUnitTreeNode `json:"root_nodes"`
+	TotalCount int               `json:"total_count"`
 }
