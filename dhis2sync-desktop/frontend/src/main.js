@@ -737,8 +737,6 @@ class DHIS2SyncApp {
                         </div>
                     </div>
                 </div>
-            </div>
-            </div >
             `;
     }
 

@@ -1,101 +1,82 @@
-# DHIS2 Data Exchange (Railway Deployment)
+# DHIS2 Data Exchange
 
-A deployment-ready FastAPI + Jinja app for DHIS2 data exchange, metadata sync, and completeness assessment.
+![DHIS2 Sync Banner](https://img.shields.io/badge/DHIS2-Data_Exchange-blue?style=for-the-badge&logo=dhis2)
+![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
 
-## ✨ Highlights
+**DHIS2 Data Exchange** is a comprehensive toolkit for synchronizing data and metadata between DHIS2 instances. This repository contains two distinct solutions tailored to different deployment needs:
 
-- FastAPI backend, Bootstrap + Vanilla JS frontend
-- Data transfer (dataset → periods → org units) with progress polling
-- Metadata assessment, mapping suggestions, dry-run + apply
-- Completeness assessment with OU tree, period picker, detailed results, and exports
-- Connection profiles stored securely (SQLAlchemy + Fernet encryption)
-- Health (`/healthz`) and readiness (`/ready`) endpoints
+1.  **🖥️ Desktop Application (Recommended)**: A modern, cross-platform native app for individual users.
+2.  **🌐 Web Application**: A server-based solution for centralized, multi-user deployments.
 
-## 📦 Folder Contents
+---
 
-- `app/` – FastAPI app, routers, templates, models, DB
-- `static/` – JS, manifest, service worker, icons
-- `migrations/`, `alembic.ini` – Alembic migrations
-- `requirements.txt` – Pinned dependencies
-- `Dockerfile` – Production container image (uvicorn)
+## 🖥️ Solution 1: Desktop Application (Recommended)
 
-## 🚀 Deploy on Railway
+> **Best for:** Individual data managers, offline use, and local security.
 
-1) Create a new GitHub repo and add this `RailwayDeployment/` folder at the repo root (or set service root to this folder in Railway)
+Built with **Wails (Go + JS)**, the desktop app offers a fast, secure, and native experience on macOS, Windows, and Linux.
 
-2) In Railway:
-- New Service → Deploy from GitHub → select your repo
-- Set the service root to `RailwayDeployment/` (Service → Settings → Build)
-- Add Variables:
-  - `DATABASE_URL` (from Railway Postgres plugin)
-  - `ENCRYPTION_KEY` (32-byte base64; generate below)
-  - Optional: `LOG_LEVEL=info`, `PORT=8000`
-- Deploy → open `/ready` to confirm DB connectivity
+### Key Features
+- **Native Performance**: Single executable with a lightweight footprint.
+- **Local Security**: Credentials stored encrypted on your device (AES-256-GCM).
+- **Offline Capable**: Configure jobs and view history without an internet connection.
+- **Cross-Platform**: Runs natively on macOS, Windows, and Linux.
 
-Generate `ENCRYPTION_KEY` (macOS/Linux):
+### Quick Start
 ```bash
-python - <<'PY'
-from cryptography.fernet import Fernet
-print(Fernet.generate_key().decode())
-PY
+# Download the latest release or build from source:
+cd dhis2sync-desktop
+wails build
 ```
 
-## ⚙️ Environment
+[👉 Go to Desktop Documentation](./dhis2sync-desktop/README.md)
 
-- `DATABASE_URL`  e.g. `postgresql+psycopg2://USER:PASS@HOST:5432/DB`
-- `ENCRYPTION_KEY`  base64 fernet key
-- Optional: `SECRET_KEY`, `ENVIRONMENT`, `LOG_LEVEL`, `HOST`, `PORT`
+---
 
-## 🧭 Features Overview
+## 🌐 Solution 2: Web Application
 
-### Transfer
-- Pick dataset → preview period options → select org units
-- Direct sync when compatible; mapping otherwise
-- Live progress under Transfers
+> **Best for:** Centralized teams, cloud deployment (Railway/Docker), and shared access.
 
-### Metadata
-- Assess: Missing | Conflicts | Suggestions
-- Suggest mappings (UID, code, name)
-- Build minimal, dependency-aware payloads
-- Dry-run, then apply; friendly import report view
+Built with **FastAPI (Python)** and **Vanilla JS**, this web application is designed for server deployments where multiple users need to access the same sync configuration.
 
-### Completeness
-- Dataset dropdown + period picker by `periodType`
-- OU tree with expand/collapse; alphabetical sorting
-- Data elements list with search, pagination, A→Z ordering
-- Results table with badges and a “View” modal:
-  - Summary: compliance %, present/required
-  - Present and Missing elements (searchable)
-- Background assessment with progress polling
-- Export JSON/CSV
+### Key Features
+- **Centralized**: Deploy once, access from anywhere via browser.
+- **Docker Ready**: Production-ready `Dockerfile` for easy containerization.
+- **Database Backed**: Uses PostgreSQL for robust job and profile storage.
+- **Scalable**: Designed for cloud environments like Railway or AWS.
 
-## 🛠 Local Run (optional)
-
+### Quick Start
 ```bash
-cd RailwayDeployment
+# Run locally with Python
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-export DATABASE_URL="sqlite:///./app.db"
-export ENCRYPTION_KEY="$(python - <<'PY'
-from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())
-PY)"
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-- Check `http://localhost:8000/ready`
-
-## 🗃 Migrations (optional)
-
-```bash
-cd RailwayDeployment
-alembic revision -m "init schema" --autogenerate
-alembic upgrade head
+uvicorn app.main:app --reload
 ```
 
-## 🧪 Health/Readiness
-- `GET /healthz` → `{ "status": "ok" }`
-- `GET /ready` → `{ "ready": true }` when DB reachable
+---
 
-## 🧰 Notes
-- Keep secrets in Railway Variables; do not commit `.env`
-- App auto-creates tables on first run; introduce Alembic as needed
-- If deploying subfolder, ensure Railway builds from `RailwayDeployment/`
+## ⚖️ Which one should I use?
+
+| Feature | 🖥️ Desktop App | 🌐 Web App |
+| :--- | :--- | :--- |
+| **Tech Stack** | Go (Wails) + JS | Python (FastAPI) + JS |
+| **Deployment** | Install on laptop | Deploy to Server/Cloud |
+| **User Base** | Single User | Team / Multi-user |
+| **Security** | Local Encryption | Server-side DB |
+| **Setup** | Download & Run | Requires Server/Docker |
+| **Offline** | Yes | No |
+
+---
+
+## � Repository Structure
+
+- **`dhis2sync-desktop/`**: Source code for the Wails/Go desktop application.
+- **`app/`**: Source code for the FastAPI/Python web application.
+- **`static/`**: Frontend assets for the web application.
+- **`migrations/`**: Database migrations for the web application.
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.

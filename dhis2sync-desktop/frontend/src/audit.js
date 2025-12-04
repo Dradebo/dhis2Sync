@@ -12,20 +12,18 @@ export class AuditModule {
 
     render() {
         return `<div>
-            \u003c!-- Empty State (shown when no profile selected) --\u003e
-            \u003cdiv id="audit-empty-state" class="card shadow-sm" style="display: none;"\u003e
-                <div class="card-body text-center py-5">
-                    <i class="bi bi-shield-check text-muted" style="font-size: 4rem;"></i>
-                    <h4 class="mt-3 mb-2">No Connection Profile Selected</h4>
-                    <p class="text-muted mb-4">Select a profile to begin auditing your data for missing metadata and quality issues.</p>
-                    <button class="btn btn-primary" onclick="app.switchToTab('settings-tab')">
-                        <i class="bi bi-gear me-2"></i>Go to Connections
-                    </button>
-                </div>
+            <!-- Empty State (shown when no profile selected) -->
+            <div id="audit-empty-state" class="text-center py-5" style="display: none;">
+                <i class="bi bi-shield-check text-muted" style="font-size: 4rem;"></i>
+                <h4 class="mt-3 mb-2">No Connection Profile Selected</h4>
+                <p class="text-muted mb-4">Select a profile to begin auditing your data for missing metadata and quality issues.</p>
+                <button class="btn btn-primary" onclick="app.switchToTab('settings-tab')">
+                    <i class="bi bi-gear me-2"></i>Go to Connections
+                </button>
             </div>
 
             <!-- Main Audit Interface -->
-            <div id="audit-main-interface" class="card shadow-sm">
+            <div id="audit-main-interface">
                 <div class="card-header bg-white py-3">
                     <div class="d-flex justify-content-between align-items-center">
                         <h5 class="mb-0 text-primary"><i class="bi bi-shield-check me-2"></i>Data Audit</h5>
