@@ -47,10 +47,8 @@ logs/
 .DS_Store
 Thumbs.db
 
-
 # Scripts
 *.sh
-
 
 # Note: keep Alembic migrations under version control
 # (do not ignore migrations/versions)
@@ -67,3 +65,47 @@ deployment-info.txt
 *.txt
 !requirements.txt
 
+# ===================================
+# Desktop App Specific (Wails/Go/JS)
+# ===================================
+
+# Wails build artifacts
+dhis2sync-desktop/build/
+dhis2sync-desktop/frontend/dist/
+dhis2sync-desktop/frontend/node_modules/
+
+# Go
+dhis2sync-desktop/*.exe
+dhis2sync-desktop/*.dll
+dhis2sync-desktop/*.so
+dhis2sync-desktop/*.dylib
+dhis2sync-desktop/vendor/
+
+# Node/NPM
+node_modules/
+package-lock.json
+yarn.lock
+.npm/
+.yarn/
+
+# ===================================
+# Data Files (LARGE FILES)
+# ===================================
+
+# Exclude all large JSON data exports
+dataValueSets*.json
+*.json.gz
+*.csv.gz
+
+# Exclude data directories
+data/
+exports/
+downloads/
+temp/
+tmp/
+
+# ===================================
+# Antigravity/AI Assistant
+# ===================================
+.gemini/
+.antigravity/
