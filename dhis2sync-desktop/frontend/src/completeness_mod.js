@@ -230,7 +230,8 @@ export class CompletenessModule {
     }
 
     /**
-     * Load root org units with full hierarchy preload
+     * Load org units using BATCH level fetch (much faster than recursive loading).
+     * This fetches all levels in parallel instead of recursively loading each parent.
      */
     async loadOUTreeRoot() {
         const tree = document.getElementById('comp_ou_tree');
@@ -245,83 +246,86 @@ export class CompletenessModule {
             return;
         }
 
-        // Show loading animation with progress
-        this.ouLoadingProgress = { loaded: 0, total: 0 };
+        // Show loading animation
         tree.innerHTML = `
             <div class="d-flex flex-column align-items-center text-primary py-4" id="ou-loading-indicator">
                 <div class="spinner-border mb-3" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <div class="fw-bold mb-1">Loading Full Organization Hierarchy</div>
-                <span class="small text-muted" id="ou-loading-text">Fetching organization units...</span>
-                <small class="text-muted mt-2">Please wait while we load all units for instant access</small>
+                <div class="fw-bold mb-1">Loading Organization Hierarchy</div>
+                <span class="small text-muted" id="ou-loading-text">Fetching all levels in parallel...</span>
             </div>
         `;
 
         try {
-            // Load root nodes
-            const roots = await this.app.listOrgUnits('', this.currentInstance);
-            this.ouCache[cacheKey] = roots;
+            console.log('[Completeness] Fetching org units by level (batch)...');
 
-            // Update progress
-            this.ouLoadingProgress.loaded = roots.length;
-            this.updateLoadingProgress();
+            // Use the new batch method - fetches all levels in parallel
+            const orgUnitsByLevel = await App.GetOrgUnitsByLevelBatch(
+                this.app.currentProfile.id,
+                this.currentInstance,
+                10 // max levels
+            );
 
-            // Recursively load all children
-            await this.loadOUTreeRecursive(roots);
+            if (!orgUnitsByLevel || Object.keys(orgUnitsByLevel).length === 0) {
+                console.warn('[Completeness] No org units returned from batch fetch');
+                tree.innerHTML = '<div class="text-muted small">No organization units found</div>';
+                return;
+            }
 
-            // Mark as fully loaded
-            this.ouTreeFullyLoaded = true;
+            // Build parent-child mapping
+            const allUnits = [];
+            const childrenByParent = new Map();
 
-            // Render the complete tree
-            tree.innerHTML = this.renderOUTreeNodes(roots);
-            console.log('[Completeness] Full OU tree loaded and cached');
-        } catch (error) {
-            console.error('[Completeness] Failed to load OU tree', error);
-            tree.innerHTML = `<div class="text-danger small">${error.message}</div>`;
-        }
-    }
+            for (const [levelStr, units] of Object.entries(orgUnitsByLevel)) {
+                for (const ou of units) {
+                    allUnits.push(ou);
 
-    /**
-     * Recursively load all children in the org unit tree
-     */
-    async loadOUTreeRecursive(nodes) {
-        if (!nodes || nodes.length === 0) return;
-
-        // Process nodes sequentially to avoid overwhelming the API
-        for (const node of nodes) {
-            // Check if node has children (either hasChildren flag or children array)
-            const hasKids = node.hasChildren || (node.children && node.children.length > 0);
-
-            if (hasKids) {
-                const cacheKey = `${this.currentProfileId}_${this.currentInstance}_${node.id}`;
-
-                // Skip if already cached
-                if (this.ouCache[cacheKey]) {
-                    console.log(`[Completeness] Skipping ${node.displayName || node.id} - already cached`);
-                    await this.loadOUTreeRecursive(this.ouCache[cacheKey]);
-                    continue;
-                }
-
-                try {
-                    console.log(`[Completeness] Loading children for: ${node.displayName || node.id}`);
-
-                    // Load children
-                    const children = await this.app.listOrgUnits(node.id, this.currentInstance);
-                    this.ouCache[cacheKey] = children;
-
-                    // Update progress
-                    this.ouLoadingProgress.loaded += children.length;
-                    this.updateLoadingProgress();
-
-                    console.log(`[Completeness] Loaded ${children.length} children for ${node.displayName || node.id}`);
-
-                    // Recursively load grandchildren
-                    await this.loadOUTreeRecursive(children);
-                } catch (error) {
-                    console.error(`[Completeness] Failed to load children for ${node.id}`, error);
+                    // Track parent-child relationships
+                    if (ou.parent?.id) {
+                        if (!childrenByParent.has(ou.parent.id)) {
+                            childrenByParent.set(ou.parent.id, []);
+                        }
+                        childrenByParent.get(ou.parent.id).push(ou);
+                    }
                 }
             }
+
+            // Cache children by parent ID
+            for (const [parentId, children] of childrenByParent) {
+                const childCacheKey = `${this.currentProfileId}_${this.currentInstance}_${parentId}`;
+                // Sort alphabetically
+                children.sort((a, b) => (a.displayName || a.name || '').localeCompare(b.displayName || b.name || ''));
+                this.ouCache[childCacheKey] = children;
+
+                // Mark parent as having children
+                const parent = allUnits.find(u => u.id === parentId);
+                if (parent) parent.hasChildren = true;
+            }
+
+            // Get root units (level 1)
+            const roots = allUnits.filter(ou => ou.level === 1);
+            roots.sort((a, b) => (a.displayName || a.name || '').localeCompare(b.displayName || b.name || ''));
+
+            // Mark roots that have children
+            roots.forEach(root => {
+                if (childrenByParent.has(root.id)) {
+                    root.hasChildren = true;
+                }
+            });
+
+            // Cache roots
+            this.ouCache[cacheKey] = roots;
+            this.ouTreeFullyLoaded = true;
+
+            console.log(`[Completeness] Loaded ${allUnits.length} org units across ${Object.keys(orgUnitsByLevel).length} levels`);
+
+            // Render the tree
+            tree.innerHTML = this.renderOUTreeNodes(roots);
+
+        } catch (error) {
+            console.error('[Completeness] Failed to load OU tree', error);
+            tree.innerHTML = `<div class="text-danger small">Failed to load: ${error.message || error}</div>`;
         }
     }
 

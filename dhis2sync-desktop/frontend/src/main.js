@@ -2651,25 +2651,36 @@ class DHIS2SyncApp {
      * Load Completeness tab - populate datasets
      */
     async loadCompletenessTab() {
+        // Prevent multiple concurrent loads
+        if (this._loadingCompletenessTab) {
+            return;
+        }
+        this._loadingCompletenessTab = true;
+
         console.log('Loading Completeness tab...');
 
-        // Setup instance change listener
-        const instanceSelect = document.getElementById('comp_instance');
-        if (instanceSelect && !instanceSelect.dataset.listenerAdded) {
-            instanceSelect.addEventListener('change', async () => {
-                await this.loadCompletenessDatasets();
-                // Reinitialize OU picker for the new instance
-                await this.initCompletenessOUPicker();
-            });
-            instanceSelect.dataset.listenerAdded = 'true';
+        try {
+            // Setup instance change listener
+            const instanceSelect = document.getElementById('comp_instance');
+            if (instanceSelect && !instanceSelect.dataset.listenerAdded) {
+                instanceSelect.addEventListener('change', async () => {
+                    await this.loadCompletenessDatasets();
+                    // Reinitialize OU picker for the new instance
+                    this.completenessOUPicker = null; // Reset so it can be re-created
+                    await this.initCompletenessOUPicker();
+                });
+                instanceSelect.dataset.listenerAdded = 'true';
+            }
+
+            await this.loadCompletenessDatasets();
+            this.initCompletenessPeriodControls();
+            this.setCompletenessExportState(false);
+
+            // Initialize OU picker
+            await this.initCompletenessOUPicker();
+        } finally {
+            this._loadingCompletenessTab = false;
         }
-
-        await this.loadCompletenessDatasets();
-        this.initCompletenessPeriodControls();
-        this.setCompletenessExportState(false);
-
-        // Initialize OU picker
-        await this.initCompletenessOUPicker();
     }
 
     /**
@@ -2685,12 +2696,22 @@ class DHIS2SyncApp {
      * Initialize org unit picker for Completeness tab
      */
     async initCompletenessOUPicker() {
+        // Prevent multiple/concurrent initializations
+        if (this.completenessOUPicker || this._completenessOUPickerInitializing) {
+            return;
+        }
+        this._completenessOUPickerInitializing = true;
+
         try {
             const container = document.getElementById('comp-ou-picker-container');
-            if (!container) return;
+            if (!container) {
+                this._completenessOUPickerInitializing = false;
+                return;
+            }
 
             if (!this.currentProfile) {
                 container.innerHTML = '<div class="alert alert-warning small">Please select a connection profile in Settings first.</div>';
+                this._completenessOUPickerInitializing = false;
                 return;
             }
 
@@ -2717,6 +2738,8 @@ class DHIS2SyncApp {
             if (container) {
                 container.innerHTML = `<div class="alert alert-danger small">Failed to initialize picker: ${error}</div>`;
             }
+        } finally {
+            this._completenessOUPickerInitializing = false;
         }
     }
 

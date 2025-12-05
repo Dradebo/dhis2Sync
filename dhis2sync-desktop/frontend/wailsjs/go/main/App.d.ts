@@ -39,6 +39,8 @@ export function GetOrgUnitTree(arg1:string,arg2:string,arg3:string,arg4:number):
 
 export function GetOrgUnitsByLevel(arg1:string,arg2:string,arg3:number):Promise<Array<transfer.OrganisationUnit>>;
 
+export function GetOrgUnitsByLevelBatch(arg1:string,arg2:string,arg3:number):Promise<Record<number, Array<transfer.OrganisationUnit>>>;
+
 export function GetProfile(arg1:string):Promise<models.ConnectionProfile>;
 
 export function GetSelectedProfile():Promise<models.ConnectionProfile>;

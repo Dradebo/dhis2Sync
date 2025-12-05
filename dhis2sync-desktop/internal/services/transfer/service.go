@@ -1756,6 +1756,114 @@ func (s *Service) GetOrgUnitChildren(profileID string, sourceOrDest string, pare
 	return result.OrgUnits, nil
 }
 
+// GetOrgUnitsByLevelBatch fetches all org units grouped by level in parallel
+// This is MUCH faster than fetching children per-parent for large hierarchies
+// Instead of 100+ sequential API calls, this makes only ~5 parallel calls (one per level)
+func (s *Service) GetOrgUnitsByLevelBatch(profileID string, sourceOrDest string, maxLevel int) (map[int][]OrgUnit, error) {
+	// Get profile from database ONCE
+	db := database.GetDB()
+	var profile models.ConnectionProfile
+	if err := db.Where("id = ?", profileID).First(&profile).Error; err != nil {
+		return nil, fmt.Errorf("profile not found: %w", err)
+	}
+
+	// Create API client ONCE (uses the client's default 600s timeout)
+	client, err := s.getAPIClient(&profile, sourceOrDest)
+	if err != nil {
+		return nil, err
+	}
+
+	// Default max level if not specified
+	if maxLevel <= 0 {
+		maxLevel = 10 // Most DHIS2 instances have max 6-7 levels
+	}
+
+	// Results map with mutex for concurrent access
+	results := make(map[int][]OrgUnit)
+	var mu sync.Mutex
+
+	log.Printf("[OrgUnitBatch] Fetching org units for levels 1-%d", maxLevel)
+
+	// Fetch levels sequentially but with concurrency limit of 3
+	concurrency := 3
+	semaphore := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	var firstError error
+	var errMu sync.Mutex
+
+	for level := 1; level <= maxLevel; level++ {
+		wg.Add(1)
+		semaphore <- struct{}{} // acquire
+
+		go func(lvl int) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // release
+
+			log.Printf("[OrgUnitBatch] Fetching level %d...", lvl)
+
+			params := map[string]string{
+				"fields": "id,displayName,name,code,level,path,parent[id]",
+				"filter": fmt.Sprintf("level:eq:%d", lvl),
+				"paging": "false",
+				"order":  "displayName:asc",
+			}
+
+			resp, err := client.Get("api/organisationUnits.json", params)
+			if err != nil {
+				log.Printf("[OrgUnitBatch] Level %d error: %v", lvl, err)
+				errMu.Lock()
+				if firstError == nil {
+					firstError = fmt.Errorf("level %d: %w", lvl, err)
+				}
+				errMu.Unlock()
+				return
+			}
+
+			if !resp.IsSuccess() {
+				// Level might not exist (e.g., asking for level 10 when only 5 exist)
+				// Just return empty for non-existent levels
+				log.Printf("[OrgUnitBatch] Level %d returned HTTP %d (may not exist)", lvl, resp.StatusCode())
+				return
+			}
+
+			var r struct {
+				OrgUnits []OrgUnit `json:"organisationUnits"`
+			}
+
+			if err := json.Unmarshal(resp.Body(), &r); err != nil {
+				log.Printf("[OrgUnitBatch] Level %d parse error: %v", lvl, err)
+				return
+			}
+
+			// Only store non-empty results
+			if len(r.OrgUnits) > 0 {
+				mu.Lock()
+				results[lvl] = r.OrgUnits
+				mu.Unlock()
+				log.Printf("[OrgUnitBatch] Level %d: fetched %d org units", lvl, len(r.OrgUnits))
+			} else {
+				log.Printf("[OrgUnitBatch] Level %d: no org units found", lvl)
+			}
+		}(level)
+	}
+
+	wg.Wait()
+
+	// If we got an error and no results, return the error
+	if firstError != nil && len(results) == 0 {
+		return nil, firstError
+	}
+
+	// Count total
+	total := 0
+	for _, units := range results {
+		total += len(units)
+	}
+	log.Printf("[OrgUnitBatch] Complete: %d org units across %d levels", total, len(results))
+
+	return results, nil
+}
+
 // GetUserRootOrgUnit fetches the user's root (top-level) organization unit from /api/me
 func (s *Service) GetUserRootOrgUnit(profileID string, sourceOrDest string) (*OrgUnit, error) {
 	// Get profile from database

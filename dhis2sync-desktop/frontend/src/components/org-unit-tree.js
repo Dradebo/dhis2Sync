@@ -75,10 +75,14 @@ export class OrgUnitTreePicker {
         document.getElementById(`${this.containerId}-collapse-all`).addEventListener('click', () => this.collapseAll());
         document.getElementById(`${this.containerId}-clear`).addEventListener('click', () => this.clearSelection());
 
-        // Load root org units (level 1)
-        await this.loadRoots();
+        // Load the entire hierarchy in one batch operation
+        // This replaces the old loadRoots() + preloadAll() pattern
+        await this.preloadAll();
     }
 
+    /**
+     * Load root org units (level 1)
+     */
     /**
      * Load root org units (level 1)
      */
@@ -88,7 +92,7 @@ export class OrgUnitTreePicker {
 
             if (!roots || roots.length === 0) {
                 this.treeContainer.innerHTML = '<div class="text-muted small">No organization units found</div>';
-                return;
+                return false;
             }
 
             // Cache org units
@@ -100,9 +104,86 @@ export class OrgUnitTreePicker {
             // Attach event listeners to rendered nodes (FIX: was missing)
             this.attachTreeEventListeners();
 
+            return true;
+
         } catch (error) {
             console.error('Failed to load org units:', error);
             this.treeContainer.innerHTML = `<div class="text-danger small">Error: ${error}</div>`;
+            return false;
+        }
+    }
+
+    /**
+     * Load all children for the entire hierarchy using BATCH level fetch.
+     * This method uses GetOrgUnitsByLevelBatch which fetches all levels in parallel
+     * (typically 5 API calls instead of 100+), dramatically improving performance.
+     * Falls back to the old loadRoots() method if the batch fails.
+     */
+    async preloadAll() {
+        // Show loading state
+        this.treeContainer.innerHTML = '<div class="text-center py-2 text-muted small"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading hierarchy...</div>';
+
+        try {
+            console.log('[OrgUnitTree] Fetching org units by level (batch)...');
+
+            // Fetch all levels in ONE batch call (new optimized endpoint)
+            const orgUnitsByLevel = await App.GetOrgUnitsByLevelBatch(
+                this.profileId,
+                this.instance,
+                10 // max levels to fetch
+            );
+
+            if (!orgUnitsByLevel || Object.keys(orgUnitsByLevel).length === 0) {
+                console.warn('[OrgUnitTree] No org units returned from batch fetch, falling back to loadRoots');
+                await this.loadRoots();
+                return;
+            }
+
+            // Build parent-child relationships from flat level data
+            const childrenByParent = new Map();
+
+            // Process all levels and cache units
+            for (const [levelStr, units] of Object.entries(orgUnitsByLevel)) {
+                for (const ou of units) {
+                    // Cache the org unit
+                    this.orgUnitsCache.set(ou.id, ou);
+
+                    // Track parent-child relationships
+                    if (ou.parent?.id) {
+                        if (!childrenByParent.has(ou.parent.id)) {
+                            childrenByParent.set(ou.parent.id, []);
+                        }
+                        childrenByParent.get(ou.parent.id).push(ou);
+                    }
+                }
+            }
+
+            // Cache children for instant toggle (no more API calls needed!)
+            for (const [parentId, children] of childrenByParent) {
+                // Sort children alphabetically
+                children.sort((a, b) => (a.displayName || a.name || '').localeCompare(b.displayName || b.name || ''));
+                this.childrenCache.set(parentId, children);
+            }
+
+            console.log(`[OrgUnitTree] Pre-loaded ${this.orgUnitsCache.size} org units across ${Object.keys(orgUnitsByLevel).length} levels`);
+
+            // Render tree with roots
+            const roots = Array.from(this.orgUnitsCache.values()).filter(ou => ou.level === 1);
+            roots.sort((a, b) => (a.displayName || a.name || '').localeCompare(b.displayName || b.name || ''));
+
+            if (roots.length === 0) {
+                this.treeContainer.innerHTML = '<div class="text-muted small">No organization units found</div>';
+                return;
+            }
+
+            this.renderTree(roots);
+            this.attachTreeEventListeners();
+
+        } catch (error) {
+            console.error('Failed to preload hierarchy:', error);
+            // Fall back to old method
+            console.log('[OrgUnitTree] Falling back to loadRoots...');
+            await this.loadRoots();
         }
     }
 

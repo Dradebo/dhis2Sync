@@ -68,12 +68,18 @@ type CategoryOptionCombo struct {
 
 // OrganisationUnit represents a DHIS2 organization unit
 type OrganisationUnit struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName"`
-	Code        string `json:"code"`
-	Level       int    `json:"level"`
-	Path        string `json:"path"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	DisplayName string            `json:"displayName"`
+	Code        string            `json:"code"`
+	Level       int               `json:"level"`
+	Path        string            `json:"path"`
+	Parent      *OrgUnitParentRef `json:"parent,omitempty"`
+}
+
+// OrgUnitParentRef is a reference to a parent org unit (just the ID)
+type OrgUnitParentRef struct {
+	ID string `json:"id"`
 }
 
 // OrgUnit is an alias for OrganisationUnit for convenience

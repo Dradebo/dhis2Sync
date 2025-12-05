@@ -62,6 +62,10 @@ export function GetOrgUnitsByLevel(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetOrgUnitsByLevel'](arg1, arg2, arg3);
 }
 
+export function GetOrgUnitsByLevelBatch(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetOrgUnitsByLevelBatch'](arg1, arg2, arg3);
+}
+
 export function GetProfile(arg1) {
   return window['go']['main']['App']['GetProfile'](arg1);
 }

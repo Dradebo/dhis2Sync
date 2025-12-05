@@ -409,6 +409,12 @@ func (a *App) GetOrgUnitChildren(profileID string, sourceOrDest string, parentID
 	return a.transferService.GetOrgUnitChildren(profileID, sourceOrDest, parentID)
 }
 
+// GetOrgUnitsByLevelBatch fetches all org units grouped by level in parallel
+// This is MUCH faster than fetching children per-parent for large hierarchies
+func (a *App) GetOrgUnitsByLevelBatch(profileID string, sourceOrDest string, maxLevel int) (map[int][]transfer.OrgUnit, error) {
+	return a.transferService.GetOrgUnitsByLevelBatch(profileID, sourceOrDest, maxLevel)
+}
+
 // Metadata Service Methods
 
 // GetMetadataSummary fetches metadata summaries for selected types
