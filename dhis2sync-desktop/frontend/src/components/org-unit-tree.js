@@ -141,6 +141,8 @@ export class OrgUnitTreePicker {
 
             // Build parent-child relationships from flat level data
             const childrenByParent = new Map();
+            let parentsFound = 0;
+            let orphans = 0;
 
             // Process all levels and cache units
             for (const [levelStr, units] of Object.entries(orgUnitsByLevel)) {
@@ -154,9 +156,18 @@ export class OrgUnitTreePicker {
                             childrenByParent.set(ou.parent.id, []);
                         }
                         childrenByParent.get(ou.parent.id).push(ou);
+                        parentsFound++;
+                    } else {
+                        // Root nodes (level 1) won't have parents
+                        if (ou.level > 1) {
+                            orphans++;
+                        }
                     }
                 }
             }
+
+            console.log(`[OrgUnitTree] Parent-child relationships: ${parentsFound} children found, ${orphans} orphans (non-root without parent)`);
+            console.log(`[OrgUnitTree] Parents with children: ${childrenByParent.size}`);
 
             // Cache children for instant toggle (no more API calls needed!)
             for (const [parentId, children] of childrenByParent) {
@@ -166,6 +177,7 @@ export class OrgUnitTreePicker {
             }
 
             console.log(`[OrgUnitTree] Pre-loaded ${this.orgUnitsCache.size} org units across ${Object.keys(orgUnitsByLevel).length} levels`);
+            console.log(`[OrgUnitTree] Children cache has ${this.childrenCache.size} entries`);
 
             // Render tree with roots
             const roots = Array.from(this.orgUnitsCache.values()).filter(ou => ou.level === 1);
@@ -243,38 +255,46 @@ export class OrgUnitTreePicker {
     }
 
     /**
-     * Render a single org unit node
-     */
+ * Render a single org unit node
+ */
     renderNode(orgUnit, level) {
         const isExpanded = this.expandedIds.has(orgUnit.id);
         const isSelected = this.selectedIds.has(orgUnit.id);
         const indent = level * 20;
 
+        // Check if this node has children in the cache
+        const hasChildren = this.childrenCache.has(orgUnit.id) && this.childrenCache.get(orgUnit.id).length > 0;
+
+        // Only show expand button if node has children
+        const expandButton = hasChildren
+            ? `<button class="btn btn-link btn-sm p-0 me-1 expand-toggle"
+                   data-ou-id="${orgUnit.id}"
+                   style="width: 20px; text-decoration: none;">
+               <i class="bi bi-${isExpanded ? 'dash-square' : 'plus-square'}"></i>
+           </button>`
+            : `<span style="width: 20px; display: inline-block;"></span>`; // spacer for alignment
+
         return `
-            <div class="org-unit-node" data-ou-id="${orgUnit.id}" style="margin-left: ${indent}px;">
-                <div class="d-flex align-items-center py-1">
-                    <button class="btn btn-link btn-sm p-0 me-1 expand-toggle"
-                            data-ou-id="${orgUnit.id}"
-                            style="width: 20px; text-decoration: none;">
-                        <i class="bi bi-${isExpanded ? 'dash-square' : 'plus-square'}"></i>
-                    </button>
-                    <div class="form-check">
-                        <input class="form-check-input ou-checkbox" type="checkbox"
-                               id="ou-${orgUnit.id}"
-                               data-ou-id="${orgUnit.id}"
-                               ${isSelected ? 'checked' : ''} />
-                        <label class="form-check-label" for="ou-${orgUnit.id}" style="cursor: pointer;">
-                            ${this.escapeHtml(orgUnit.displayName || orgUnit.name)}
-                            <span class="text-muted small">(${orgUnit.code || 'no code'})</span>
-                        </label>
-                    </div>
-                </div>
-                <div class="org-unit-children" id="children-${orgUnit.id}"
-                     style="display: ${isExpanded ? 'block' : 'none'};">
-                    ${isExpanded ? '<div class="text-muted small ms-4">Loading...</div>' : ''}
+        <div class="org-unit-node" data-ou-id="${orgUnit.id}" style="margin-left: ${indent}px;">
+            <div class="d-flex align-items-center py-1">
+                ${expandButton}
+                <div class="form-check">
+                    <input class="form-check-input ou-checkbox" type="checkbox"
+                           id="ou-${orgUnit.id}"
+                           data-ou-id="${orgUnit.id}"
+                           ${isSelected ? 'checked' : ''} />
+                    <label class="form-check-label" for="ou-${orgUnit.id}" style="cursor: pointer;">
+                        ${this.escapeHtml(orgUnit.displayName || orgUnit.name)}
+                        <span class="text-muted small">(${orgUnit.code || 'no code'})</span>
+                    </label>
                 </div>
             </div>
-        `;
+            <div class="org-unit-children" id="children-${orgUnit.id}"
+                 style="display: ${isExpanded ? 'block' : 'none'};">
+                ${isExpanded ? '<div class="text-muted small ms-4">Loading...</div>' : ''}
+            </div>
+        </div>
+    `;
     }
 
     /**
@@ -301,16 +321,23 @@ export class OrgUnitTreePicker {
             // Expand
             this.expandedIds.add(orgUnitId);
 
-            // Load children
+            // Get the parent's level to calculate child level
+            const parentOU = this.orgUnitsCache.get(orgUnitId);
+            const childLevel = parentOU ? (parentOU.level || 0) + 1 : 1;
+
+            // Load children (will use cache if available)
             const children = await this.loadChildren(orgUnitId);
+            console.log(`[OrgUnitTree] handleToggle: ${orgUnitId} has ${children?.length || 0} children at level ${childLevel}`);
 
             // Render children
             const childrenContainer = document.getElementById(`children-${orgUnitId}`);
             if (childrenContainer) {
                 childrenContainer.style.display = 'block';
                 if (children && children.length > 0) {
-                    childrenContainer.innerHTML = children.map(child => this.renderNode(child, 1)).join('');
+                    // Use proper nesting level based on parent
+                    childrenContainer.innerHTML = children.map(child => this.renderNode(child, childLevel)).join('');
                     this.attachNodeEventListeners(childrenContainer);
+                    console.log(`[OrgUnitTree] Rendered ${children.length} children nodes`);
                 } else {
                     childrenContainer.innerHTML = '<div class="text-muted small ms-4">No children</div>';
                 }

@@ -15,7 +15,7 @@ import { toast } from './toast';
 import { renderStepper, renderSectionState } from './components';
 import { generatePeriods } from './utils/periods';
 import { SchedulerManager } from './components/scheduler';
-import { CompletenessModule } from './completeness_mod.js';
+// CompletenessModule removed - was dead code, all functionality consolidated in main.js
 import { AuditModule } from './audit.js';
 import { DataElementPicker } from './components/data-element-picker';
 
@@ -35,7 +35,7 @@ class DHIS2SyncApp {
         // Initialize components
         this.scheduler = new SchedulerManager('scheduler-content');
         this.dataElementPicker = new DataElementPicker('comp-de-picker-container');
-        this.completeness = new CompletenessModule(this);
+        // Completeness functionality is now handled directly in main.js methods
         this.audit = new AuditModule(this);
         this.dataOUPicker = null; // Transfer tab org unit picker
         this.trkOUPicker = null;  // Tracker tab org unit picker
@@ -2747,20 +2747,32 @@ class DHIS2SyncApp {
      * Load datasets for completeness assessment
      */
     async loadCompletenessDatasets() {
+        console.log('[Completeness] loadCompletenessDatasets START');
+
         const datasetSelect = document.getElementById('comp_dataset_id');
-        if (!datasetSelect) return;
+        if (!datasetSelect) {
+            console.error('[Completeness] CRITICAL: comp_dataset_id element not found!');
+            return;
+        }
+        console.log('[Completeness] Found datasetSelect element');
 
         if (!this.currentProfile) {
+            console.warn('[Completeness] No currentProfile');
             datasetSelect.innerHTML = '<option value="">No profile selected - go to Settings</option>';
             return;
         }
+        console.log('[Completeness] Using profile:', this.currentProfile.id);
 
         const instanceSelect = document.getElementById('comp_instance');
         const instance = instanceSelect?.value || 'source';
+        console.log('[Completeness] Instance:', instance);
 
         try {
             datasetSelect.innerHTML = '<option value="">Loading datasets...</option>';
+            console.log('[Completeness] Calling App.ListDatasets...');
+
             const datasets = await App.ListDatasets(this.currentProfile.id, instance);
+            console.log('[Completeness] ListDatasets returned:', datasets?.length, 'datasets');
 
             if (!datasets || datasets.length === 0) {
                 datasetSelect.innerHTML = '<option value="">No datasets found</option>';
@@ -2774,6 +2786,7 @@ class DHIS2SyncApp {
                 option.textContent = ds.displayName || ds.name;
                 datasetSelect.appendChild(option);
             });
+            console.log('[Completeness] Dataset dropdown populated successfully');
 
             // Add change listener for data element picker
             datasetSelect.onchange = () => {
@@ -2783,7 +2796,7 @@ class DHIS2SyncApp {
             };
 
         } catch (error) {
-            console.error('Failed to load datasets:', error);
+            console.error('[Completeness] Failed to load datasets:', error);
             datasetSelect.innerHTML = '<option value="">Error loading datasets</option>';
             toast.error(`Failed to load datasets: ${error} `);
         }
@@ -2892,58 +2905,118 @@ class DHIS2SyncApp {
     }
 
     /**
-     * Render completeness results
-     */
+ * Render completeness results
+ * 
+ * Backend returns:
+ * {
+ *   total_compliant: number,
+ *   total_non_compliant: number, 
+ *   total_errors: number,
+ *   hierarchy: { [parentId]: { name, compliant: [], non_compliant: [] } },
+ *   compliance_details: { [orgUnitId]: { id, name, compliance_percentage, elements_present, elements_required, ... } }
+ * }
+ */
     renderCompletenessResults(results) {
         const resultsDiv = document.getElementById('comp-results');
 
-        if (!results || !results.org_units || results.org_units.length === 0) {
+        if (!results) {
             resultsDiv.innerHTML = '<div class="text-muted">No results to display</div>';
             return;
         }
 
-        const compliantCount = results.org_units.filter(ou => ou.compliant).length;
-        const totalCount = results.org_units.length;
+        console.log('[Completeness] Rendering results:', results);
+
+        // Extract org units from compliance_details or hierarchy
+        let orgUnits = [];
+
+        if (results.compliance_details && Object.keys(results.compliance_details).length > 0) {
+            // Use compliance_details - contains all org units with details
+            orgUnits = Object.entries(results.compliance_details).map(([id, info]) => ({
+                id: id,
+                name: info.name || id,
+                compliance_percentage: info.compliance_percentage || 0,
+                elements_present: info.elements_present || 0,
+                elements_required: info.elements_required || 0,
+                has_data: info.has_data || false,
+                compliant: (info.compliance_percentage || 0) >= 100
+            }));
+        } else if (results.hierarchy && Object.keys(results.hierarchy).length > 0) {
+            // Fallback to hierarchy - extract from compliant/non_compliant arrays
+            for (const [parentId, hierarchyResult] of Object.entries(results.hierarchy)) {
+                if (hierarchyResult.compliant) {
+                    orgUnits.push(...hierarchyResult.compliant.map(ou => ({ ...ou, compliant: true })));
+                }
+                if (hierarchyResult.non_compliant) {
+                    orgUnits.push(...hierarchyResult.non_compliant.map(ou => ({ ...ou, compliant: false })));
+                }
+            }
+        } else if (results.org_units) {
+            // Legacy format fallback
+            orgUnits = results.org_units;
+        }
+
+        if (orgUnits.length === 0) {
+            resultsDiv.innerHTML = '<div class="text-muted">No organization units found in results</div>';
+            return;
+        }
+
+        // Sort by name
+        orgUnits.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+        const compliantCount = results.total_compliant || orgUnits.filter(ou => ou.compliant).length;
+        const nonCompliantCount = results.total_non_compliant || orgUnits.filter(ou => !ou.compliant).length;
+        const totalCount = compliantCount + nonCompliantCount;
+        const complianceRate = totalCount > 0 ? (compliantCount / totalCount * 100).toFixed(1) : 0;
 
         let html = `
-            <div class="mb-3" >
-                <div class="d-flex justify-content-between mb-2">
-                    <strong>Summary</strong>
-                    <span class="badge bg-${compliantCount === totalCount ? 'success' : 'warning'}">${compliantCount}/${totalCount} Compliant</span>
-                </div>
-                <div class="progress" style="height: 20px;">
-                    <div class="progress-bar bg-success" style="width: ${(compliantCount / totalCount * 100).toFixed(1)}%">
-                        ${(compliantCount / totalCount * 100).toFixed(1)}%
-                    </div>
+        <div class="mb-3">
+            <div class="d-flex justify-content-between mb-2">
+                <strong>Summary</strong>
+                <div>
+                    <span class="badge bg-success me-1">${compliantCount} Compliant</span>
+                    <span class="badge bg-danger">${nonCompliantCount} Non-compliant</span>
                 </div>
             </div>
-            <div class="small" style="max-height: 400px; overflow:auto;">
-                <table class="table table-sm table-striped">
-                    <thead>
-                        <tr>
-                            <th>Org Unit</th>
-                            <th>Compliance %</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        `;
+            <div class="progress" style="height: 20px;">
+                <div class="progress-bar bg-success" style="width: ${complianceRate}%">
+                    ${complianceRate}% (${compliantCount}/${totalCount})
+                </div>
+            </div>
+        </div>
+        <div class="small" style="max-height: 400px; overflow:auto;">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th>Org Unit</th>
+                        <th class="text-end">Present/Required</th>
+                        <th class="text-end">Compliance %</th>
+                        <th class="text-center">Status</th>
+                    </tr>
+                </thead>
+                <tbody>`;
 
-        results.org_units.slice(0, 50).forEach(ou => {
-            const compliancePercent = ((ou.present_count / ou.required_count) * 100).toFixed(1);
+        orgUnits.slice(0, 100).forEach(ou => {
+            const compliancePercent = ou.compliance_percentage !== undefined
+                ? ou.compliance_percentage.toFixed(1)
+                : (ou.elements_required > 0 ? (ou.elements_present / ou.elements_required * 100).toFixed(1) : '0.0');
+
+            const statusBadge = ou.compliant
+                ? '<span class="badge bg-success">Compliant</span>'
+                : '<span class="badge bg-danger">Incomplete</span>';
+
             html += `
-                        <tr>
-                            <td><small>${this.escapeHtml(ou.org_unit_name || ou.org_unit_id)}</small></td>
-                            <td><small>${compliancePercent}%</small></td>
-                            <td><span class="badge bg-${ou.compliant ? 'success' : 'danger'} badge-sm">${ou.compliant ? 'OK' : 'Incomplete'}</span></td>
-                        </tr>
-                        `;
+            <tr>
+                <td><small>${this.escapeHtml(ou.name || ou.id || 'Unknown')}</small></td>
+                <td class="text-end"><small>${ou.elements_present || 0}/${ou.elements_required || 0}</small></td>
+                <td class="text-end"><small>${compliancePercent}%</small></td>
+                <td class="text-center">${statusBadge}</td>
+            </tr>`;
         });
 
         html += '</tbody></table>';
 
-        if (results.org_units.length > 50) {
-            html += `<div class="text-muted text-center">Showing first 50 of ${results.org_units.length} org units. Export for full results.</div>`;
+        if (orgUnits.length > 100) {
+            html += `<div class="text-muted text-center">Showing first 100 of ${orgUnits.length} org units. Export for full results.</div>`;
         }
 
         html += '</div>';

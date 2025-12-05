@@ -269,12 +269,8 @@ func (s *Service) performAssessment(taskID string, profile *models.ConnectionPro
 	}
 	s.assessmentMu.Unlock()
 
+	// This will emit with results included via emitAssessmentEvent
 	s.updateProgress(taskID, "completed", 100, "Assessment complete")
-
-	runtime.EventsEmit(s.ctx, fmt.Sprintf("assessment:%s", taskID), map[string]interface{}{
-		"task_id": taskID,
-		"status":  "completed",
-	})
 }
 
 func (s *Service) assessPeriod(client *api.Client, parentOrgUnits []string, period,
