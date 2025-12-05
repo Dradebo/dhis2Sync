@@ -2,30 +2,28 @@
 
 Cross-platform desktop application for synchronizing health data between DHIS2 (District Health Information System 2) instances.
 
-**⚠️ WORK IN PROGRESS:** This is a migration of the [dhis2Sync web application](../README.md) to a native desktop application using Go and Wails. See [PROGRESS.md](./PROGRESS.md) for current status.
+## Features
 
-## Features (Planned)
-
-- **Data Transfer**: Sync aggregate datasets between instances with element mapping
-- **Metadata Assessment**: Compare and sync metadata (data elements, categories, org units)
-- **Completeness Assessment**: Analyze data element compliance across organization units
-- **Tracker/Events**: Transfer event programs between instances
-- **Scheduled Jobs**: Automate recurring transfers and assessments
-- **Native Desktop Experience**:
+- **✅ Data Transfer**: Sync aggregate datasets between instances with element mapping
+- **✅ Completeness Assessment**: Analyze data element compliance across organization units
+- **✅ Tracker/Events**: Transfer event programs between instances  
+- **✅ Audit**: Pre-transfer metadata validation to identify missing elements
+- **✅ Scheduled Jobs**: Automate recurring transfers and assessments
+- **✅ Native Desktop Experience**:
   - Single executable (no browser required)
-  - System tray integration
-  - Native file dialogs
-  - Offline-capable
-  - Auto-updates
+  - Encrypted credential storage (AES-256-GCM)
+  - Offline-capable configuration
+  - Cross-platform (macOS, Windows, Linux)
 
 ## Technology Stack
 
 - **Backend**: Go 1.24+ with Wails v2
-- **Frontend**: Vanilla JavaScript (ported from web version)
+- **Frontend**: Vanilla JavaScript with Bootstrap 5
 - **Database**: SQLite (dev) / PostgreSQL (prod) with GORM
 - **Task Processing**: Goroutines + channels for background jobs
 - **Scheduler**: robfig/cron for recurring operations
 - **Security**: AES-256-GCM encryption for stored credentials
+- **API Client**: Resty with connection pooling and retry logic
 
 ## Quick Start
 
@@ -90,10 +88,24 @@ dhis2sync-desktop/
 │   ├── database/              # GORM database layer
 │   ├── models/                # Data models (ConnectionProfile, ScheduledJob, TaskProgress)
 │   ├── crypto/                # AES-256-GCM encryption utilities
-│   ├── services/              # Business logic (Transfer, Metadata, Completeness, Tracker, Scheduler)
+│   ├── services/              # Business logic
+│   │   ├── transfer/          # Data transfer service
+│   │   ├── completeness/      # Completeness assessment
+│   │   ├── tracker/           # Tracker/event transfer
+│   │   ├── audit/             # Metadata audit
+│   │   ├── scheduler/         # Job scheduling
+│   │   └── metadata/          # Metadata operations
 │   └── utils/                 # Helper functions
 ├── frontend/
 │   ├── src/                   # Frontend source (HTML, JS, CSS)
+│   │   ├── main.js            # Main application logic
+│   │   ├── components/        # Reusable components
+│   │   │   ├── org-unit-tree.js      # Org unit picker with batch loading
+│   │   │   ├── data-element-picker.js # Data element selector
+│   │   │   └── scheduler.js          # Job scheduler UI
+│   │   ├── progress-tracker.js       # Real-time progress tracking
+│   │   ├── audit.js           # Audit module
+│   │   └── utils/             # Frontend utilities
 │   ├── dist/                  # Built frontend assets
 │   └── wailsjs/               # Auto-generated Wails bindings
 └── build/                     # Build configurations per platform
@@ -114,30 +126,50 @@ DATABASE_URL="sqlite://./dhis2sync.db" # Or postgresql://user:pass@host:5432/db
 LOG_LEVEL="DEBUG"              # Enable verbose logging (default: INFO)
 ```
 
-## Development Status
+## Key Features
 
-**Current Phase:** Phase 2 - Core Infrastructure (Complete) ✅
+### 1. Data Transfer
+- Transfer aggregate data between DHIS2 instances
+- Automatic data element mapping
+- Org unit selection with hierarchical tree picker (batch loading for 60K+ units)
+- Period selection with quick presets
+- Dry-run mode for validation
+- Real-time progress tracking
+- Mark datasets as complete after transfer
 
-**Completed:**
-- ✅ Project initialization with Wails
-- ✅ GORM models (ConnectionProfile, ScheduledJob, TaskProgress)
-- ✅ Database layer (SQLite + PostgreSQL support)
-- ✅ AES-256-GCM encryption (ported from Python Fernet)
-- ✅ DHIS2 API client with retry logic
-- ✅ Application lifecycle (startup/shutdown hooks)
-- ✅ Build verification (21MB single executable)
+### 2. Completeness Assessment
+- Assess data completeness across organization units
+- Configurable compliance thresholds
+- Period-based analysis
+- Data element filtering
+- Export results (JSON/CSV)
+- Visual compliance reporting
 
-**In Progress:**
-- 🚧 Service layer migration (Transfer, Metadata, Completeness, Tracker, Scheduler)
+### 3. Tracker/Event Transfer
+- Transfer tracker events between instances
+- Program and event type selection
+- Date range filtering
+- Org unit scoping
 
-**Pending:**
-- ⏳ Frontend migration (Vanilla JS with Wails bindings)
-- ⏳ Background task management (goroutines + events)
-- ⏳ Native UI features (menus, tray, dialogs)
-- ⏳ Testing & quality assurance
-- ⏳ Multi-platform build & distribution
+### 4. Audit
+- Pre-transfer metadata validation
+- Identify missing data elements, categories, and org units
+- Detailed mismatch reporting
+- Prevent transfer failures
 
-See [PROGRESS.md](./PROGRESS.md) for detailed tracking.
+### 5. Scheduled Jobs
+- Automate recurring transfers and assessments
+- Cron-based scheduling
+- Job history and monitoring
+- Enable/disable jobs dynamically
+
+## Recent Improvements
+
+- ✅ **Org Unit Picker**: Optimized batch loading for large hierarchies (63K+ units)
+- ✅ **Completeness Tab**: Fixed results rendering and data structure handling
+- ✅ **Progress Tracking**: Real-time event-based updates using Wails runtime
+- ✅ **Connection Pooling**: Improved API client performance with connection reuse
+- ✅ **Credential Security**: AES-256-GCM encryption with PBKDF2 key derivation
 
 ## Migration from Web Version
 
@@ -168,8 +200,7 @@ See parent project [LICENSE](../LICENSE).
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/yourusername/dhis2Sync/issues)
-- Documentation: [Wiki](https://github.com/yourusername/dhis2Sync/wiki)
+- Issues: [GitHub Issues](https://github.com/Dradebo/dhis2Sync/issues)
 - Parent Web App: [../README.md](../README.md)
 
 ---
